@@ -3,6 +3,7 @@ import os
 import time
 import threading
 import random
+import torch
 from mooncake_vllm_adaptor import MooncakeDistributedStore
 
 
@@ -111,13 +112,19 @@ class TestDistributedObjectStore(unittest.TestCase):
         start_barrier = threading.Barrier(NUM_THREADS + 1)  # +1 for main thread
         put_barrier = threading.Barrier(NUM_THREADS + 1)    # Barrier after put operations
         get_barrier = threading.Barrier(NUM_THREADS + 1)    # Barrier after get operations
-        
+        put_tensor_barrier = threading.Barrier(NUM_THREADS + 1)    # Barrier after put operations
+        get_tensor_barrier = threading.Barrier(NUM_THREADS + 1)    # Barrier after get operations
+
         # Statistics for system-wide timing
         system_stats = {
             'put_start': 0,
             'put_end': 0,
             'get_start': 0,
-            'get_end': 0
+            'get_end': 0,
+            'put_tensor_start': 0,
+            'put_tensor_end': 0,
+            'get_tensor_start': 0,
+            'get_tensor_end': 0
         }
         thread_exceptions = []
         
@@ -125,6 +132,11 @@ class TestDistributedObjectStore(unittest.TestCase):
             try:
                 # Generate test data (1MB)
                 test_data = os.urandom(VALUE_SIZE)
+                dtype = torch.float32
+                element_size = torch.tensor([], dtype=dtype).element_size()  #get num
+                num_elements = 1024 * 1024 // element_size  # cal sum
+                test_tensor_data = torch.rand(num_elements, dtype=dtype)
+
                 thread_keys = [f"key_{thread_id}_{i}" for i in range(OPERATIONS_PER_THREAD)]
                 
                 # Wait for all threads to be ready
@@ -148,11 +160,30 @@ class TestDistributedObjectStore(unittest.TestCase):
                 
                 # Wait for all threads to complete get operations
                 get_barrier.wait()
-                
+
+                # Put operations
+                for key in thread_keys:
+                    print(key)
+                    result = self.store.put_tensor(key, test_tensor_data)
+                    self.assertEqual(result, 0, f"Put operation failed for key {key}")
+
                 # Remove all keys
                 for key in thread_keys:
                     self.assertEqual(self.store.remove(key), 0)
                 
+                # Wait for all threads to complete put operations
+                put_tensor_barrier.wait()
+
+                # Get operations
+                for key in thread_keys:
+                    retrieved_data = self.store.get_tensor(key)
+                    self.assertEqual(len(retrieved_data), VALUE_SIZE, 
+                                    f"Retrieved data size mismatch for key {key}")
+                    self.assertEqual(retrieved_data, test_tensor_data, 
+                                    f"Retrieved data content mismatch for key {key}")
+                
+                # Wait for all threads to complete get operations
+                get_tensor_barrier.wait()
                 
             except Exception as e:
                 thread_exceptions.append(f"Thread {thread_id} failed: {str(e)}")
@@ -180,6 +211,20 @@ class TestDistributedObjectStore(unittest.TestCase):
         # Wait for all get operations to complete
         get_barrier.wait()
         system_stats['get_end'] = time.time()
+
+        # Record put start time
+        system_stats['put_tensor_start'] = time.time()
+        
+        # Wait for all put operations to complete
+        put_tensor_barrier.wait()
+        system_stats['put_tensor_end'] = time.time()
+        
+        # Record get start time
+        system_stats['get_tensor_start'] = time.time()
+        
+        # Wait for all get operations to complete
+        get_tensor_barrier.wait()
+        system_stats['get_tensor_end'] = time.time()
         
         
         # Join all threads
@@ -193,6 +238,8 @@ class TestDistributedObjectStore(unittest.TestCase):
         total_operations = NUM_THREADS * OPERATIONS_PER_THREAD
         put_duration = system_stats['put_end'] - system_stats['put_start']
         get_duration = system_stats['get_end'] - system_stats['get_start']
+        put_tensor_duration = system_stats['put_tensor_end'] - system_stats['put_tensor_start']
+        get_tensor_duration = system_stats['get_tensor_end'] - system_stats['get_tensor_start']
         total_data_size_gb = (VALUE_SIZE * total_operations) / (1024**3)
         
         print(f"\nConcurrent Stress Test Results:")
@@ -203,10 +250,16 @@ class TestDistributedObjectStore(unittest.TestCase):
         print(f"Total data processed: {total_data_size_gb:.2f}GB")
         print(f"Put duration: {put_duration:.2f} seconds")
         print(f"Get duration: {get_duration:.2f} seconds")
+        print(f"Put duration: {put_tensor_duration:.2f} seconds")
+        print(f"Get duration: {get_tensor_duration:.2f} seconds")
         print(f"System Put throughput: {total_operations/put_duration:.2f} ops/sec")
         print(f"System Get throughput: {total_operations/get_duration:.2f} ops/sec")
         print(f"System Put bandwidth: {total_data_size_gb/put_duration:.2f} GB/sec")
         print(f"System Get bandwidth: {total_data_size_gb/get_duration:.2f} GB/sec")
+        print(f"System Put throughput: {total_operations/put_tensor_duration:.2f} ops/sec")
+        print(f"System Get throughput: {total_operations/get_tensor_duration:.2f} ops/sec")
+        print(f"System Put bandwidth: {total_data_size_gb/put_tensor_duration:.2f} GB/sec")
+        print(f"System Get bandwidth: {total_data_size_gb/get_tensor_duration:.2f} GB/sec")
 
     def test_dict_fuzz_e2e(self):
          """End-to-end fuzz test comparing distributed store behavior with dict.
