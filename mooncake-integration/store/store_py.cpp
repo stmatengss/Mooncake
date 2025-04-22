@@ -301,7 +301,64 @@ int DistributedObjectStore::put(const std::string &key,
     return 0;
 }
 
+int DistributedObjectStore::putWithMetadata(const std::string &key,
+                                const std::string &value, 
+                                const std::string &metadata) {
+    if (!client_) {
+        LOG(ERROR) << "Client is not initialized";
+        return 1;
+    }
+    ReplicateConfig config;
+    config.replica_num = 1;  // TODO
+
+    std::vector<Slice> slices;
+    int ret = allocateSlices(slices, value);
+    if (ret) return ret;
+    ErrorCode error_code = client_->Put(std::string(key), slices, config);
+    freeSlices(slices);
+    if (error_code != ErrorCode::OK) return toInt(error_code);
+    return 0;
+}
+
 pybind11::bytes DistributedObjectStore::get(const std::string &key) {
+    if (!client_) {
+        LOG(ERROR) << "Client is not initialized";
+        return pybind11::bytes("\0", 0);
+    }
+    mooncake::Client::ObjectInfo object_info;
+    std::vector<Slice> slices;
+
+    const auto kNullString = pybind11::bytes("\0", 0);
+    ErrorCode error_code = client_->Query(key, object_info);
+    if (error_code != ErrorCode::OK) return kNullString;
+
+    uint64_t str_length = 0;
+    int ret = allocateSlices(slices, object_info, str_length);
+    if (ret) return kNullString;
+
+    error_code = client_->Get(key, object_info, slices);
+    if (error_code != ErrorCode::OK) {
+        freeSlices(slices);
+        return kNullString;
+    }
+
+    if (slices.size() == 1 && slices[0].size == str_length) {
+        auto result = pybind11::bytes((char *)slices[0].ptr, str_length);
+        freeSlices(slices);
+        return result;
+    }
+
+    const char *str = exportSlices(slices, str_length);
+    freeSlices(slices);
+    if (!str) return kNullString;
+
+    pybind11::bytes result(str, str_length);
+    delete[] str;
+    return result;
+}
+
+pybind11::bytes DistributedObjectStore::getWithMetadata(const std::string &key, 
+                                                const std::string &metadata) {
     if (!client_) {
         LOG(ERROR) << "Client is not initialized";
         return pybind11::bytes("\0", 0);

@@ -64,7 +64,14 @@ class DistributedObjectStore {
 
     int put(const std::string &key, const std::string &value);
 
+    int putWithMetadata(const std::string &key,
+                        const std::string &value, 
+                        const std::string &metadata);
+
     pybind11::bytes get(const std::string &key);
+
+    pybind11::bytes getWithMetadata(const std::string &key, 
+                                    const std::string &metadata);
 
     int remove(const std::string &key);
 
