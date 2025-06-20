@@ -140,7 +140,7 @@ def main():
     
     # Initialize client engine
     client_engine = MooncakeTransferEngine(
-        hostname="localhost:10011",
+        hostname=CLIENT_HOST_NAME,
         gpu_id=0,  # Using GPU 0
         ib_device=None  # No specific IB device
     )
