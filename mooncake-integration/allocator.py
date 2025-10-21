@@ -1,5 +1,6 @@
 import os
 import threading
+import ctypes
 from importlib import resources
 from typing import Dict, Final, Optional
 
@@ -49,6 +50,8 @@ class NVLinkAllocator:
 class BarexAllocator:
     _instances: Dict[torch_device, CUDAPluggableAllocator] = {}
     _lock: Final = threading.Lock()
+    _barex_lib = None
+    _wrapper_funcs_created = False
 
     @classmethod
     def _get_so_path(cls) -> str:
@@ -89,11 +92,58 @@ class BarexAllocator:
         )
 
     @classmethod
+    def _load_barex_lib(cls) -> ctypes.CDLL:
+        """Load the barex library using ctypes"""
+        if cls._barex_lib is None:
+            so_path = cls._get_so_path()
+            cls._barex_lib = ctypes.CDLL(so_path)
+            
+            # Set up the function signatures
+            cls._barex_lib.u2mm_alloc_wrapper.argtypes = [ctypes.c_ssize_t, ctypes.c_int]
+            cls._barex_lib.u2mm_alloc_wrapper.restype = ctypes.c_void_p
+            
+            cls._barex_lib.u2mm_free_wrapper.argtypes = [ctypes.c_void_p]
+            cls._barex_lib.u2mm_free_wrapper.restype = None
+        
+        return cls._barex_lib
+
+    @classmethod
+    def _create_wrapper_functions(cls):
+        """Create wrapper functions that adapt barex functions to CUDA interface"""
+        if cls._wrapper_funcs_created:
+            return
+            
+        barex_lib = cls._load_barex_lib()
+        
+        # Define wrapper functions that match CUDA pluggable allocator interface
+        def barex_malloc(size: int, device: int, stream) -> ctypes.c_void_p:
+            """Wrapper function that adapts u2mm_alloc_wrapper to CUDA interface"""
+            # The barex allocator doesn't use device or stream parameters,
+            # so we ignore them and just pass size and a default device (0)
+            return barex_lib.u2mm_alloc_wrapper(size, device)
+        
+        def barex_free(ptr: ctypes.c_void_p, size: int, device: int, stream):
+            """Wrapper function that adapts u2mm_free_wrapper to CUDA interface"""
+            # The barex free function only needs the pointer
+            # Size, device, and stream parameters are ignored
+            barex_lib.u2mm_free_wrapper(ptr)
+        
+        # Store the wrapper functions in the class
+        cls._barex_malloc = barex_malloc
+        cls._barex_free = barex_free
+        cls._wrapper_funcs_created = True
+
+    @classmethod
     def get_allocator(cls, device: torch_device) -> CUDAPluggableAllocator:
         with cls._lock:
             if device not in cls._instances:
                 so_path = cls._get_so_path()
+                
+                # Create wrapper functions if not already created
+                cls._create_wrapper_functions()
+                
+                # Create the CUDA pluggable allocator with wrapper functions
                 cls._instances[device] = CUDAPluggableAllocator(
-                    so_path, "u2mm_alloc_wrapper", "u2mm_free_wrapper"
+                    so_path, "barex_malloc", "barex_free"
                 )
             return cls._instances[device]
