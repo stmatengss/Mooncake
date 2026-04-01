@@ -76,7 +76,6 @@ echo -e "This script will install all required dependencies for Mooncake."
 echo -e "The following components will be installed:"
 echo -e "  - System packages (build tools, libraries)"
 echo -e "  - Git submodules (including pybind11 and yalantinglibs)"
-echo -e "  - yalantinglibs"
 echo -e "  - Go $GOVER"
 echo
 
@@ -181,6 +180,7 @@ cmake --install .
 check_success "Failed to install yalantinglibs"
 
 print_success "yalantinglibs installed successfully"
+cd "${REPO_ROOT}"
 
 print_section "Verifying essential build tools"
 
