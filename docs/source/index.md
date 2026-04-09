@@ -141,4 +141,5 @@ deployment/mooncake-store-deployment-guide
 :maxdepth: 1
 
 community/governance
+community/agent-harness
 :::
