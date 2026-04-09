@@ -8,8 +8,8 @@ from typing import Any
 
 DENY_PATTERNS = [
     (re.compile(r"\bgit\s+reset\s+--hard\b"), "Refuse destructive git reset in workspace hooks."),
-    (re.compile(r"\bgit\s+checkout\s+--\b"), "Refuse destructive checkout restore in workspace hooks."),
-    (re.compile(r"\brm\s+-rf\s+(/|~|\$HOME)\b"), "Refuse destructive recursive deletion outside controlled build paths."),
+    (re.compile(r"\bgit\s+checkout\s+--(?:\s|$)"), "Refuse destructive checkout restore in workspace hooks."),
+    (re.compile(r"\brm\s+-rf\s+(/|~|\$HOME)(?:\s|$)"), "Refuse destructive recursive deletion outside controlled build paths."),
 ]
 
 ASK_PATTERNS = [

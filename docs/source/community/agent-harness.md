@@ -64,7 +64,11 @@ For Claude compatibility, the same shared hook commands are also wired through [
 The current hook set does three things:
 
 1. `SessionStart` injects a short reminder about Mooncake module boundaries and preferred validation commands.
-2. `PreToolUse` blocks or asks for confirmation on destructive or broad-impact commands.
+2. `PreToolUse` blocks or asks for confirmation on destructive or broad-impact commands. The current deny list blocks:
+   - `git reset --hard` (any form)
+   - `git checkout -- <path>` (destructive file restore)
+   - `rm -rf /`, `rm -rf ~`, and `rm -rf $HOME` (root or home deletion)
+   The ask list prompts for confirmation on broad `clang-format` sweeps and `rm -rf build*` cleanups. Prefer `scripts/code_format.sh` for formatting to keep the scope bounded.
 3. `PostToolUse` reminds the agent about likely follow-up checks when code, packaging, scripts, or docs changed.
 
 Hooks are not meant to replace skills. They enforce or remind. Skills carry the actual task workflow.
