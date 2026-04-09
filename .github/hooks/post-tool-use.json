@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "python3 .github/hooks/scripts/post_tool_use.py",
+        "cwd": ".",
+        "timeout": 10
+      }
+    ]
+  }
+}
