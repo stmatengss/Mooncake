@@ -7,6 +7,7 @@
 #include "pyclient.h"
 #include "real_client.h"
 #include "shm_helper.h"
+#include "client_metric.h"
 #include <memory>
 
 namespace mooncake {
@@ -253,6 +254,11 @@ class DummyClient : public PyClient {
 
     // Ascend physical device id for dummy-real RPC to real, set in setup_dummy
     int32_t device_id_ = 0;
+
+    std::unique_ptr<ClientMetric> metrics_;
+
+    void ObserveReadMetric(size_t bytes, uint64_t latency_us, bool batch);
+    void ObserveWriteMetric(size_t bytes, uint64_t latency_us, bool batch);
 };
 
 }  // namespace mooncake
