@@ -80,13 +80,14 @@ ClientMetric::ClientMetric(uint64_t interval_seconds,
                            bool bandwidth_reporting_enabled)
     : transfer_metric(labels),
       master_client_metric(labels),
+      transfer_operation_metric(labels),
       should_stop_metrics_thread_(false),
       metrics_interval_seconds_(interval_seconds),
       bandwidth_reporting_enabled_(bandwidth_reporting_enabled) {
-    last_report_snapshot_ =
-        TransferSnapshot{transfer_metric.total_read_bytes.value(),
-                         transfer_metric.total_write_bytes.value(),
-                         std::chrono::steady_clock::now()};
+    last_report_snapshot_ = TransferSnapshot{
+        static_cast<uint64_t>(transfer_metric.total_read_bytes.value()),
+        static_cast<uint64_t>(transfer_metric.total_write_bytes.value()),
+        std::chrono::steady_clock::now()};
     if (metrics_interval_seconds_ > 0) {
         StartMetricsReportingThread();
     }
@@ -118,6 +119,7 @@ std::unique_ptr<ClientMetric> ClientMetric::Create(
 void ClientMetric::serialize(std::string& str) {
     transfer_metric.serialize(str);
     master_client_metric.serialize(str);
+    transfer_operation_metric.serialize(str);
 }
 
 std::string ClientMetric::summary_metrics() {
@@ -126,6 +128,8 @@ std::string ClientMetric::summary_metrics() {
     ss << transfer_metric.summary_metrics(bandwidth_reporting_enabled_);
     ss << "\n";
     ss << master_client_metric.summary_metrics();
+    ss << "\n";
+    ss << transfer_operation_metric.summary_metrics();
     return ss.str();
 }
 

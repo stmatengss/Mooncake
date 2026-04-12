@@ -257,8 +257,11 @@ class DummyClient : public PyClient {
 
     std::unique_ptr<ClientMetric> metrics_;
 
-    void ObserveReadMetric(size_t bytes, uint64_t latency_us, bool batch);
-    void ObserveWriteMetric(size_t bytes, uint64_t latency_us, bool batch);
+    void ObserveTransferMetric(TransferOperationKind kind,
+                               const char* op_name,
+                               size_t bytes,
+                               uint64_t latency_us,
+                               bool batch);
 };
 
 }  // namespace mooncake

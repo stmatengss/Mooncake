@@ -111,15 +111,23 @@ TEST_F(ClientMetricsTest, ClientMetricsSummaryTest) {
     std::array<std::string, 1> exist_key_label = {"ExistKey"};
     metrics.master_client_metric.rpc_count.inc(exist_key_label);
     metrics.master_client_metric.rpc_latency.observe(exist_key_label, 180);
+    metrics.ObserveTransferOperation(TransferOperationKind::kRead,
+                                     "get_buffer", 2 * 1024, 220);
+    metrics.ObserveTransferOperation(TransferOperationKind::kWrite,
+                                     "put_batch", 4 * 1024, 420);
 
     std::string summary = metrics.summary_metrics();
 
-    // Should contain both transfer and RPC metrics
+    // Should contain transfer, RPC, and interface metrics
     EXPECT_TRUE(summary.find("Transfer Metrics Summary") != std::string::npos);
     EXPECT_TRUE(summary.find("RPC Metrics Summary") != std::string::npos);
+    EXPECT_TRUE(summary.find("Interface Operation Metrics Summary") !=
+                std::string::npos);
     EXPECT_TRUE(summary.find("Total Read: 5.00 MB") != std::string::npos);
     EXPECT_TRUE(summary.find("Total Write: 10.00 MB") != std::string::npos);
     EXPECT_TRUE(summary.find("ExistKey: count=1") != std::string::npos);
+    EXPECT_TRUE(summary.find("get_buffer: count=1") != std::string::npos);
+    EXPECT_TRUE(summary.find("put_batch: count=1") != std::string::npos);
 
     std::cout << "Full Client Metrics Summary:\n" << summary << std::endl;
 }

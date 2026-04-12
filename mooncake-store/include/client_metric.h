@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <iomanip>
@@ -8,6 +9,7 @@
 #include <optional>
 #include <sstream>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 #include <ylt/metric/counter.hpp>
 #include <ylt/metric/histogram.hpp>
@@ -75,6 +77,29 @@ inline std::string format_metric_bandwidth(uint64_t total_bytes,
                                            double elapsed_seconds) {
     return format_metric_rate(total_bytes / elapsed_seconds, "B/s");
 }
+
+inline uint64_t elapsed_us_since(
+    std::chrono::steady_clock::time_point start_time) {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                     std::chrono::steady_clock::now() -
+                                     start_time)
+                                     .count());
+}
+
+template <typename Result, typename Operation, typename SuccessFn,
+          typename ObserveFn>
+Result execute_timed_operation(Operation&& operation, SuccessFn&& success_fn,
+                               ObserveFn&& observe_fn) {
+    const auto start_time = std::chrono::steady_clock::now();
+    Result result = std::forward<Operation>(operation)();
+    if (std::forward<SuccessFn>(success_fn)(result)) {
+        std::forward<ObserveFn>(observe_fn)(elapsed_us_since(start_time),
+                                            result);
+    }
+    return result;
+}
+
+enum class TransferOperationKind { kRead, kWrite };
 
 struct TransferMetric {
     TransferMetric(std::map<std::string, std::string> labels = {})
@@ -321,9 +346,163 @@ struct MasterClientMetric {
     }
 };
 
+struct TransferOperationMetric {
+    std::array<std::string, 1> op_names = {"op_name"};
+
+    explicit TransferOperationMetric(
+        std::map<std::string, std::string> labels = {})
+        : read_op_count("mooncake_transfer_read_operation_count",
+                        "Total read operations by interface type", labels,
+                        op_names),
+          read_op_bytes("mooncake_transfer_read_operation_bytes",
+                        "Total read bytes by interface type", labels,
+                        op_names),
+          read_op_latency_us("mooncake_transfer_read_operation_latency",
+                             "Read operation latency by interface type (us)",
+                             kLatencyBucket, labels, op_names),
+          write_op_count("mooncake_transfer_write_operation_count",
+                         "Total write operations by interface type", labels,
+                         op_names),
+          write_op_bytes("mooncake_transfer_write_operation_bytes",
+                         "Total write bytes by interface type", labels,
+                         op_names),
+          write_op_latency_us(
+              "mooncake_transfer_write_operation_latency",
+              "Write operation latency by interface type (us)",
+              kLatencyBucket, labels, op_names) {}
+
+    ylt::metric::hybrid_counter_1t read_op_count;
+    ylt::metric::hybrid_counter_1t read_op_bytes;
+    ylt::metric::hybrid_histogram_1t read_op_latency_us;
+    ylt::metric::hybrid_counter_1t write_op_count;
+    ylt::metric::hybrid_counter_1t write_op_bytes;
+    ylt::metric::hybrid_histogram_1t write_op_latency_us;
+
+    void Observe(TransferOperationKind kind, const std::string& op_name,
+                 uint64_t bytes, uint64_t latency_us) {
+        const std::array<std::string, 1> label = {op_name};
+        {
+            std::lock_guard<std::mutex> lock(observed_ops_mutex_);
+            if (kind == TransferOperationKind::kRead) {
+                observed_read_ops_.insert(op_name);
+            } else {
+                observed_write_ops_.insert(op_name);
+            }
+        }
+
+        if (kind == TransferOperationKind::kRead) {
+            read_op_count.inc(label);
+            read_op_bytes.inc(label, bytes);
+            read_op_latency_us.observe(label, latency_us);
+        } else {
+            write_op_count.inc(label);
+            write_op_bytes.inc(label, bytes);
+            write_op_latency_us.observe(label, latency_us);
+        }
+    }
+
+    void serialize(std::string& str) {
+        read_op_count.serialize(str);
+        read_op_bytes.serialize(str);
+        read_op_latency_us.serialize(str);
+        write_op_count.serialize(str);
+        write_op_bytes.serialize(str);
+        write_op_latency_us.serialize(str);
+    }
+
+    std::string summary_metrics() {
+        std::stringstream ss;
+        ss << "=== Interface Operation Metrics Summary ===\n";
+        ss << format_operation_group_summary(
+                  "Read Interfaces", snapshot_operations(observed_read_ops_),
+                  read_op_count, read_op_bytes, read_op_latency_us)
+           << "\n";
+        ss << format_operation_group_summary(
+            "Write Interfaces", snapshot_operations(observed_write_ops_),
+            write_op_count, write_op_bytes, write_op_latency_us);
+        return ss.str();
+    }
+
+   private:
+    std::mutex observed_ops_mutex_;
+    std::unordered_set<std::string> observed_read_ops_;
+    std::unordered_set<std::string> observed_write_ops_;
+
+    std::vector<std::string> snapshot_operations(
+        const std::unordered_set<std::string>& source) {
+        std::lock_guard<std::mutex> lock(observed_ops_mutex_);
+        std::vector<std::string> ops(source.begin(), source.end());
+        std::sort(ops.begin(), ops.end());
+        return ops;
+    }
+
+    std::string format_operation_group_summary(
+        const std::string& group_name, const std::vector<std::string>& ops,
+        ylt::metric::hybrid_counter_1t& op_count,
+        ylt::metric::hybrid_counter_1t& op_bytes,
+        ylt::metric::hybrid_histogram_1t& op_latency_us) {
+        std::stringstream ss;
+        ss << group_name << ":\n";
+        if (ops.empty()) {
+            ss << "No data";
+            return ss.str();
+        }
+
+        auto bucket_counts = op_latency_us.get_bucket_counts();
+        bool found_any = false;
+        for (const auto& op_name : ops) {
+            const std::array<std::string, 1> label = {op_name};
+            const int64_t total_count = op_count.value(label);
+            if (total_count == 0) {
+                continue;
+            }
+
+            found_any = true;
+            ss << op_name << ": count=" << total_count
+               << ", bytes="
+               << byte_size_to_string(static_cast<uint64_t>(op_bytes.value(label)));
+
+            int64_t p95_target = (total_count * 95) / 100;
+            int64_t cumulative = 0;
+            double p95_bucket = 0;
+            for (size_t i = 0;
+                 i < bucket_counts.size() && i < kLatencyBucket.size(); ++i) {
+                cumulative += bucket_counts[i]->value(label);
+                if (cumulative >= p95_target && p95_bucket == 0) {
+                    p95_bucket = kLatencyBucket[i];
+                    break;
+                }
+            }
+            if (p95_bucket > 0) {
+                ss << ", p95<" << p95_bucket << "μs";
+            }
+
+            double max_bucket = 0;
+            for (size_t i = bucket_counts.size(); i > 0; --i) {
+                const size_t idx = i - 1;
+                if (idx < kLatencyBucket.size() &&
+                    bucket_counts[idx]->value(label) > 0) {
+                    max_bucket = kLatencyBucket[idx];
+                    break;
+                }
+            }
+            if (max_bucket > 0) {
+                ss << ", max<" << max_bucket << "μs";
+            }
+            ss << "\n";
+        }
+
+        if (!found_any) {
+            ss << "No data";
+        }
+        return ss.str();
+    }
+};
+
 struct ClientMetric {
     TransferMetric transfer_metric;
     MasterClientMetric master_client_metric;
+    TransferOperationMetric transfer_operation_metric;
 
     /**
      * @brief Creates a ClientMetric instance based on environment variables
@@ -338,6 +517,13 @@ struct ClientMetric {
      */
     static std::unique_ptr<ClientMetric> Create(
         const std::map<std::string, std::string>& labels = {});
+
+    void ObserveTransferOperation(TransferOperationKind kind,
+                                  const std::string& op_name,
+                                  uint64_t bytes,
+                                  uint64_t latency_us) {
+        transfer_operation_metric.Observe(kind, op_name, bytes, latency_us);
+    }
 
     void serialize(std::string& str);
     std::string summary_metrics();
