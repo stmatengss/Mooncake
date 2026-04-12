@@ -45,10 +45,8 @@ TEST_F(ClientMetricsTest, TransferMetricsSummaryTest) {
     // Check byte formatting
     EXPECT_TRUE(summary.find("Total Read: 1.00 KB") != std::string::npos);
     EXPECT_TRUE(summary.find("Total Write: 2.00 MB") != std::string::npos);
-    EXPECT_TRUE(summary.find("Average Read Throughput:") !=
-                std::string::npos);
-    EXPECT_TRUE(summary.find("Average Write Throughput:") !=
-                std::string::npos);
+    EXPECT_TRUE(summary.find("Average Read Throughput:") != std::string::npos);
+    EXPECT_TRUE(summary.find("Average Write Throughput:") != std::string::npos);
 
     // Check latency summaries
     EXPECT_TRUE(summary.find("Get: count=3") != std::string::npos);
@@ -186,8 +184,7 @@ TEST_F(ClientMetricsTest, BandwidthSummaryRespectsEnvFlag) {
 
     metrics->transfer_metric.total_read_bytes.inc(1024);
     std::string summary = metrics->summary_metrics();
-    EXPECT_TRUE(summary.find("Average Read Throughput:") ==
-                std::string::npos);
+    EXPECT_TRUE(summary.find("Average Read Throughput:") == std::string::npos);
 
     unsetenv("MC_STORE_CLIENT_METRIC_BANDWIDTH");
 }

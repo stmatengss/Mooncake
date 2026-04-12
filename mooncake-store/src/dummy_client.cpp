@@ -26,10 +26,10 @@
 namespace {
 
 uint64_t elapsed_us_since(std::chrono::steady_clock::time_point start_time) {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-                                     std::chrono::steady_clock::now() -
-                                     start_time)
-                                     .count());
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - start_time)
+            .count());
 }
 
 size_t sum_value_sizes(const std::vector<std::span<const char>>& values) {
@@ -217,8 +217,7 @@ std::vector<tl::expected<ResultType, ErrorCode>> DummyClient::invoke_batch_rpc(
 
 DummyClient::DummyClient()
     : client_id_(generate_uuid()),
-      metrics_(ClientMetric::Create(
-          merge_labels({{"client_mode", "dummy"}}))) {
+      metrics_(ClientMetric::Create(merge_labels({{"client_mode", "dummy"}}))) {
     // Initialize logging severity (leave as before)
     mooncake::init_ylt_log_level();
     // Initialize client pools
@@ -640,9 +639,8 @@ uint64_t DummyClient::alloc_from_mem_pool(size_t size) {
 int DummyClient::put(const std::string& key, std::span<const char> value,
                      const ReplicateConfig& config) {
     const auto start_time = std::chrono::steady_clock::now();
-    auto result =
-        invoke_rpc<&RealClient::put_dummy_helper, void>(key, value, config,
-                                                        client_id_);
+    auto result = invoke_rpc<&RealClient::put_dummy_helper, void>(
+        key, value, config, client_id_);
     if (result.has_value()) {
         ObserveWriteMetric(value.size_bytes(), elapsed_us_since(start_time),
                            false);
@@ -657,8 +655,8 @@ int DummyClient::put_batch(const std::vector<std::string>& keys,
     auto result = invoke_rpc<&RealClient::put_batch_dummy_helper, void>(
         keys, values, config, client_id_);
     if (result.has_value()) {
-        ObserveWriteMetric(sum_value_sizes(values), elapsed_us_since(start_time),
-                           true);
+        ObserveWriteMetric(sum_value_sizes(values),
+                           elapsed_us_since(start_time), true);
     }
     return to_py_ret(result);
 }
@@ -670,8 +668,8 @@ int DummyClient::put_parts(const std::string& key,
     auto result = invoke_rpc<&RealClient::put_parts_dummy_helper, void>(
         key, values, config, client_id_);
     if (result.has_value()) {
-        ObserveWriteMetric(sum_value_sizes(values), elapsed_us_since(start_time),
-                           false);
+        ObserveWriteMetric(sum_value_sizes(values),
+                           elapsed_us_since(start_time), false);
     }
     return to_py_ret(result);
 }
@@ -728,8 +726,8 @@ int DummyClient::upsert_parts(const std::string& key,
     auto result = invoke_rpc<&RealClient::upsert_parts_dummy_helper, void>(
         key, values, config, client_id_);
     if (result.has_value()) {
-        ObserveWriteMetric(sum_value_sizes(values), elapsed_us_since(start_time),
-                           false);
+        ObserveWriteMetric(sum_value_sizes(values),
+                           elapsed_us_since(start_time), false);
     }
     return to_py_ret(result);
 }
@@ -741,8 +739,8 @@ int DummyClient::upsert_batch(const std::vector<std::string>& keys,
     auto result = invoke_rpc<&RealClient::upsert_batch_dummy_helper, void>(
         keys, values, config, client_id_);
     if (result.has_value()) {
-        ObserveWriteMetric(sum_value_sizes(values), elapsed_us_since(start_time),
-                           true);
+        ObserveWriteMetric(sum_value_sizes(values),
+                           elapsed_us_since(start_time), true);
     }
     return to_py_ret(result);
 }
@@ -966,8 +964,8 @@ std::vector<std::vector<std::vector<int64_t>>> DummyClient::get_into_ranges(
                                                internal_results.error());
     }
     auto results = convert_ranged_read_results(internal_results.value());
-    ObserveReadMetric(sum_positive_ranges(results), elapsed_us_since(start_time),
-                      true);
+    ObserveReadMetric(sum_positive_ranges(results),
+                      elapsed_us_since(start_time), true);
     return results;
 }
 

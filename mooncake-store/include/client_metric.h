@@ -121,11 +121,11 @@ struct TransferMetric {
         ss << "Total Write: " << byte_size_to_string(write_bytes) << "\n";
         if (include_bandwidth) {
             ss << "Average Read Throughput: "
-                    << format_metric_bandwidth(read_bytes, elapsed_seconds())
-                    << "\n";
+               << format_metric_bandwidth(read_bytes, elapsed_seconds())
+               << "\n";
             ss << "Average Write Throughput: "
-                    << format_metric_bandwidth(write_bytes, elapsed_seconds())
-                    << "\n";
+               << format_metric_bandwidth(write_bytes, elapsed_seconds())
+               << "\n";
         }
 
         // Latency summaries
@@ -344,10 +344,9 @@ struct ClientMetric {
 
     uint64_t GetReportingInterval() const { return metrics_interval_seconds_; }
 
-    explicit ClientMetric(
-        uint64_t interval_seconds = 0,
-        const std::map<std::string, std::string>& labels = {},
-        bool bandwidth_reporting_enabled = true);
+    explicit ClientMetric(uint64_t interval_seconds = 0,
+                          const std::map<std::string, std::string>& labels = {},
+                          bool bandwidth_reporting_enabled = true);
     ~ClientMetric();
 
    private:

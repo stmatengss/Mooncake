@@ -35,12 +35,12 @@ bool parseBoolEnv(const char* env_name, bool default_value) {
     }
 
     std::string value = toLower(env_value);
-    if (value == "1" || value == "true" || value == "yes" ||
-        value == "on" || value == "enable") {
+    if (value == "1" || value == "true" || value == "yes" || value == "on" ||
+        value == "enable") {
         return true;
     }
-    if (value == "0" || value == "false" || value == "no" ||
-        value == "off" || value == "disable") {
+    if (value == "0" || value == "false" || value == "no" || value == "off" ||
+        value == "disable") {
         return false;
     }
 
@@ -75,19 +75,18 @@ uint64_t parseMetricsInterval() {
 
 }  // anonymous namespace
 
-ClientMetric::ClientMetric(
-        uint64_t interval_seconds,
-        const std::map<std::string, std::string>& labels,
-        bool bandwidth_reporting_enabled)
+ClientMetric::ClientMetric(uint64_t interval_seconds,
+                           const std::map<std::string, std::string>& labels,
+                           bool bandwidth_reporting_enabled)
     : transfer_metric(labels),
       master_client_metric(labels),
       should_stop_metrics_thread_(false),
-            metrics_interval_seconds_(interval_seconds),
-            bandwidth_reporting_enabled_(bandwidth_reporting_enabled) {
-        last_report_snapshot_ = TransferSnapshot{
-                transfer_metric.total_read_bytes.value(),
-                transfer_metric.total_write_bytes.value(),
-                std::chrono::steady_clock::now()};
+      metrics_interval_seconds_(interval_seconds),
+      bandwidth_reporting_enabled_(bandwidth_reporting_enabled) {
+    last_report_snapshot_ =
+        TransferSnapshot{transfer_metric.total_read_bytes.value(),
+                         transfer_metric.total_write_bytes.value(),
+                         std::chrono::steady_clock::now()};
     if (metrics_interval_seconds_ > 0) {
         StartMetricsReportingThread();
     }
@@ -148,27 +147,25 @@ std::string ClientMetric::BuildBandwidthReport() {
     const auto previous = *last_report_snapshot_;
     last_report_snapshot_ = TransferSnapshot{read_bytes, write_bytes, now};
 
-    const double elapsed_seconds =
-        std::max(std::chrono::duration<double>(now - previous.timestamp)
-                     .count(),
-                 1e-9);
-    const uint64_t read_delta =
-        read_bytes >= previous.read_bytes ? read_bytes - previous.read_bytes
-                                          : 0;
-    const uint64_t write_delta =
-        write_bytes >= previous.write_bytes ? write_bytes - previous.write_bytes
-                                            : 0;
+    const double elapsed_seconds = std::max(
+        std::chrono::duration<double>(now - previous.timestamp).count(), 1e-9);
+    const uint64_t read_delta = read_bytes >= previous.read_bytes
+                                    ? read_bytes - previous.read_bytes
+                                    : 0;
+    const uint64_t write_delta = write_bytes >= previous.write_bytes
+                                     ? write_bytes - previous.write_bytes
+                                     : 0;
 
     std::stringstream ss;
     ss << "=== Interval Throughput Summary ===\n";
     ss << "Read Throughput: "
-         << format_metric_rate(read_delta / elapsed_seconds, "B/s")
-       << " (" << byte_size_to_string(read_delta) << " over "
-       << std::fixed << std::setprecision(2) << elapsed_seconds << "s)\n";
+       << format_metric_rate(read_delta / elapsed_seconds, "B/s") << " ("
+       << byte_size_to_string(read_delta) << " over " << std::fixed
+       << std::setprecision(2) << elapsed_seconds << "s)\n";
     ss << "Write Throughput: "
-         << format_metric_rate(write_delta / elapsed_seconds, "B/s")
-       << " (" << byte_size_to_string(write_delta) << " over "
-       << std::fixed << std::setprecision(2) << elapsed_seconds << "s)";
+       << format_metric_rate(write_delta / elapsed_seconds, "B/s") << " ("
+       << byte_size_to_string(write_delta) << " over " << std::fixed
+       << std::setprecision(2) << elapsed_seconds << "s)";
     return ss.str();
 }
 
