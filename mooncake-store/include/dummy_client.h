@@ -198,15 +198,15 @@ class DummyClient : public PyClient {
 
     template <auto ServiceMethod, typename... Args>
     int invoke_observed_void_rpc(TransferOperationKind kind,
-                                 const char* op_name, size_t bytes,
-                                 bool batch, Args&&... args) {
+                                 const char *op_name, size_t bytes, bool batch,
+                                 Args &&...args) {
         auto result = execute_timed_operation<tl::expected<void, ErrorCode>>(
             [&]() {
                 return invoke_rpc<ServiceMethod, void>(
                     std::forward<Args>(args)...);
             },
-            [](const auto& ret) { return ret.has_value(); },
-            [&](uint64_t latency_us, const auto&) {
+            [](const auto &ret) { return ret.has_value(); },
+            [&](uint64_t latency_us, const auto &) {
                 ObserveTransferMetric(kind, op_name, bytes, latency_us, batch);
             });
         return to_py_ret(result);
@@ -273,11 +273,8 @@ class DummyClient : public PyClient {
 
     std::unique_ptr<ClientMetric> metrics_;
 
-    void ObserveTransferMetric(TransferOperationKind kind,
-                               const char* op_name,
-                               size_t bytes,
-                               uint64_t latency_us,
-                               bool batch);
+    void ObserveTransferMetric(TransferOperationKind kind, const char *op_name,
+                               size_t bytes, uint64_t latency_us, bool batch);
 };
 
 }  // namespace mooncake

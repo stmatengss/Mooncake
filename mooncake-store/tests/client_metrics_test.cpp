@@ -111,10 +111,10 @@ TEST_F(ClientMetricsTest, ClientMetricsSummaryTest) {
     std::array<std::string, 1> exist_key_label = {"ExistKey"};
     metrics.master_client_metric.rpc_count.inc(exist_key_label);
     metrics.master_client_metric.rpc_latency.observe(exist_key_label, 180);
-    metrics.ObserveTransferOperation(TransferOperationKind::kRead,
-                                     "get_buffer", 2 * 1024, 220);
-    metrics.ObserveTransferOperation(TransferOperationKind::kWrite,
-                                     "put_batch", 4 * 1024, 420);
+    metrics.ObserveTransferOperation(TransferOperationKind::kRead, "get_buffer",
+                                     2 * 1024, 220);
+    metrics.ObserveTransferOperation(TransferOperationKind::kWrite, "put_batch",
+                                     4 * 1024, 420);
 
     std::string summary = metrics.summary_metrics();
 

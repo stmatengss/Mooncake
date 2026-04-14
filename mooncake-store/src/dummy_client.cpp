@@ -201,8 +201,8 @@ std::vector<tl::expected<ResultType, ErrorCode>> DummyClient::invoke_batch_rpc(
 
 DummyClient::DummyClient()
     : client_id_(generate_uuid()),
-            metrics_(ClientMetric::Create(
-                    merge_labels({{"client_mode", "dummy"}}), false)) {
+      metrics_(ClientMetric::Create(merge_labels({{"client_mode", "dummy"}}),
+                                    false)) {
     // Initialize logging severity (leave as before)
     mooncake::init_ylt_log_level();
     // Initialize client pools
@@ -645,8 +645,8 @@ int DummyClient::put_parts(const std::string& key,
 int DummyClient::upsert(const std::string& key, std::span<const char> value,
                         const ReplicateConfig& config) {
     return invoke_observed_void_rpc<&RealClient::upsert_dummy_helper>(
-        TransferOperationKind::kWrite, "upsert", value.size_bytes(), false,
-        key, value, config, client_id_);
+        TransferOperationKind::kWrite, "upsert", value.size_bytes(), false, key,
+        value, config, client_id_);
 }
 
 int DummyClient::upsert_from(const std::string& key, void* buffer, size_t size,
@@ -686,16 +686,16 @@ int DummyClient::upsert_parts(const std::string& key,
                               std::vector<std::span<const char>> values,
                               const ReplicateConfig& config) {
     return invoke_observed_void_rpc<&RealClient::upsert_parts_dummy_helper>(
-        TransferOperationKind::kWrite, "upsert_parts",
-        sum_value_sizes(values), false, key, values, config, client_id_);
+        TransferOperationKind::kWrite, "upsert_parts", sum_value_sizes(values),
+        false, key, values, config, client_id_);
 }
 
 int DummyClient::upsert_batch(const std::vector<std::string>& keys,
                               const std::vector<std::span<const char>>& values,
                               const ReplicateConfig& config) {
     return invoke_observed_void_rpc<&RealClient::upsert_batch_dummy_helper>(
-        TransferOperationKind::kWrite, "upsert_batch",
-        sum_value_sizes(values), true, keys, values, config, client_id_);
+        TransferOperationKind::kWrite, "upsert_batch", sum_value_sizes(values),
+        true, keys, values, config, client_id_);
 }
 
 int DummyClient::remove(const std::string& key, bool force) {
@@ -875,9 +875,8 @@ std::vector<std::shared_ptr<BufferHandle>> DummyClient::batch_get_buffer(
         }
     }
     if (total_bytes > 0) {
-        ObserveTransferMetric(TransferOperationKind::kRead,
-                              "batch_get_buffer", total_bytes,
-                              elapsed_us_since(start_time), true);
+        ObserveTransferMetric(TransferOperationKind::kRead, "batch_get_buffer",
+                              total_bytes, elapsed_us_since(start_time), true);
     }
 
     return results;
@@ -926,9 +925,8 @@ std::vector<std::vector<std::vector<int64_t>>> DummyClient::get_into_ranges(
     auto results = convert_ranged_read_results(internal_results.value());
     const size_t total_bytes = sum_positive_ranges(results);
     if (total_bytes > 0) {
-        ObserveTransferMetric(TransferOperationKind::kRead,
-                              "get_into_ranges", total_bytes,
-                              elapsed_us_since(start_time), true);
+        ObserveTransferMetric(TransferOperationKind::kRead, "get_into_ranges",
+                              total_bytes, elapsed_us_since(start_time), true);
     }
     return results;
 }
@@ -955,9 +953,9 @@ std::vector<int> DummyClient::batch_put_from(
 
     const size_t successful_bytes = sum_successful_sizes(results, sizes);
     if (successful_bytes > 0) {
-        ObserveTransferMetric(TransferOperationKind::kWrite,
-                              "batch_put_from", successful_bytes,
-                              elapsed_us_since(start_time), true);
+        ObserveTransferMetric(TransferOperationKind::kWrite, "batch_put_from",
+                              successful_bytes, elapsed_us_since(start_time),
+                              true);
     }
 
     return results;
@@ -986,9 +984,8 @@ std::vector<int64_t> DummyClient::batch_get_into(
 
     const size_t total_bytes = sum_positive_results(results);
     if (total_bytes > 0) {
-        ObserveTransferMetric(TransferOperationKind::kRead,
-                              "batch_get_into", total_bytes,
-                              elapsed_us_since(start_time), true);
+        ObserveTransferMetric(TransferOperationKind::kRead, "batch_get_into",
+                              total_bytes, elapsed_us_since(start_time), true);
     }
 
     return results;
@@ -1023,8 +1020,7 @@ std::vector<int> DummyClient::batch_put_from_multi_buffers(
         sum_successful_nested_sizes(results, all_sizes);
     if (successful_bytes > 0) {
         ObserveTransferMetric(TransferOperationKind::kWrite,
-                              "batch_put_from_multi_buffers",
-                              successful_bytes,
+                              "batch_put_from_multi_buffers", successful_bytes,
                               elapsed_us_since(start_time), true);
     }
     return results;

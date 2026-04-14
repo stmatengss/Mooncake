@@ -445,12 +445,11 @@ class Client {
     }
 
     void ObserveTransferOperation(TransferOperationKind kind,
-                                  const std::string& op_name,
-                                  uint64_t bytes,
+                                  const std::string& op_name, uint64_t bytes,
                                   uint64_t latency_us) {
         if (metrics_ != nullptr) {
             metrics_->ObserveTransferOperation(kind, op_name, bytes,
-                                              latency_us);
+                                               latency_us);
         }
     }
 

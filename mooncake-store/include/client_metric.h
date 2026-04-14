@@ -80,10 +80,10 @@ inline std::string format_metric_bandwidth(uint64_t total_bytes,
 
 inline uint64_t elapsed_us_since(
     std::chrono::steady_clock::time_point start_time) {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-                                     std::chrono::steady_clock::now() -
-                                     start_time)
-                                     .count());
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - start_time)
+            .count());
 }
 
 template <typename Result, typename Operation, typename SuccessFn,
@@ -355,8 +355,7 @@ struct TransferOperationMetric {
                         "Total read operations by interface type", labels,
                         op_names),
           read_op_bytes("mooncake_transfer_read_operation_bytes",
-                        "Total read bytes by interface type", labels,
-                        op_names),
+                        "Total read bytes by interface type", labels, op_names),
           read_op_latency_us("mooncake_transfer_read_operation_latency",
                              "Read operation latency by interface type (us)",
                              kLatencyBucket, labels, op_names),
@@ -366,10 +365,9 @@ struct TransferOperationMetric {
           write_op_bytes("mooncake_transfer_write_operation_bytes",
                          "Total write bytes by interface type", labels,
                          op_names),
-          write_op_latency_us(
-              "mooncake_transfer_write_operation_latency",
-              "Write operation latency by interface type (us)",
-              kLatencyBucket, labels, op_names) {}
+          write_op_latency_us("mooncake_transfer_write_operation_latency",
+                              "Write operation latency by interface type (us)",
+                              kLatencyBucket, labels, op_names) {}
 
     ylt::metric::hybrid_counter_1t read_op_count;
     ylt::metric::hybrid_counter_1t read_op_bytes;
@@ -458,9 +456,9 @@ struct TransferOperationMetric {
             }
 
             found_any = true;
-            ss << op_name << ": count=" << total_count
-               << ", bytes="
-               << byte_size_to_string(static_cast<uint64_t>(op_bytes.value(label)));
+            ss << op_name << ": count=" << total_count << ", bytes="
+               << byte_size_to_string(
+                      static_cast<uint64_t>(op_bytes.value(label)));
 
             int64_t p95_target = (total_count * 95) / 100;
             int64_t cumulative = 0;
@@ -520,8 +518,7 @@ struct ClientMetric {
         bool master_rpc_metrics_enabled = true);
 
     void ObserveTransferOperation(TransferOperationKind kind,
-                                  const std::string& op_name,
-                                  uint64_t bytes,
+                                  const std::string& op_name, uint64_t bytes,
                                   uint64_t latency_us) {
         transfer_operation_metric.Observe(kind, op_name, bytes, latency_us);
     }
