@@ -516,7 +516,8 @@ struct ClientMetric {
      *   (default: 0, 0 = collect but don't report)
      */
     static std::unique_ptr<ClientMetric> Create(
-        const std::map<std::string, std::string>& labels = {});
+        const std::map<std::string, std::string>& labels = {},
+        bool master_rpc_metrics_enabled = true);
 
     void ObserveTransferOperation(TransferOperationKind kind,
                                   const std::string& op_name,
@@ -532,7 +533,8 @@ struct ClientMetric {
 
     explicit ClientMetric(uint64_t interval_seconds = 0,
                           const std::map<std::string, std::string>& labels = {},
-                          bool bandwidth_reporting_enabled = true);
+                          bool bandwidth_reporting_enabled = true,
+                          bool master_rpc_metrics_enabled = true);
     ~ClientMetric();
 
    private:
@@ -547,6 +549,7 @@ struct ClientMetric {
     std::atomic<bool> should_stop_metrics_thread_{false};
     uint64_t metrics_interval_seconds_{0};
     bool bandwidth_reporting_enabled_{true};
+    bool master_rpc_metrics_enabled_{true};
     std::mutex snapshot_mutex_;
     std::optional<TransferSnapshot> last_report_snapshot_;
 

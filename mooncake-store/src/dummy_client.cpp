@@ -201,7 +201,8 @@ std::vector<tl::expected<ResultType, ErrorCode>> DummyClient::invoke_batch_rpc(
 
 DummyClient::DummyClient()
     : client_id_(generate_uuid()),
-      metrics_(ClientMetric::Create(merge_labels({{"client_mode", "dummy"}}))) {
+            metrics_(ClientMetric::Create(
+                    merge_labels({{"client_mode", "dummy"}}), false)) {
     // Initialize logging severity (leave as before)
     mooncake::init_ylt_log_level();
     // Initialize client pools
@@ -620,69 +621,40 @@ uint64_t DummyClient::alloc_from_mem_pool(size_t size) {
 
 int DummyClient::put(const std::string& key, std::span<const char> value,
                      const ReplicateConfig& config) {
-    const auto start_time = std::chrono::steady_clock::now();
-    auto result = invoke_rpc<&RealClient::put_dummy_helper, void>(
-        key, value, config, client_id_);
-    if (result.has_value()) {
-        ObserveTransferMetric(TransferOperationKind::kWrite, "put",
-                              value.size_bytes(),
-                              elapsed_us_since(start_time), false);
-    }
-    return to_py_ret(result);
+    return invoke_observed_void_rpc<&RealClient::put_dummy_helper>(
+        TransferOperationKind::kWrite, "put", value.size_bytes(), false, key,
+        value, config, client_id_);
 }
 
 int DummyClient::put_batch(const std::vector<std::string>& keys,
                            const std::vector<std::span<const char>>& values,
                            const ReplicateConfig& config) {
-    const auto start_time = std::chrono::steady_clock::now();
-    auto result = invoke_rpc<&RealClient::put_batch_dummy_helper, void>(
-        keys, values, config, client_id_);
-    if (result.has_value()) {
-        ObserveTransferMetric(TransferOperationKind::kWrite, "put_batch",
-                              sum_value_sizes(values),
-                              elapsed_us_since(start_time), true);
-    }
-    return to_py_ret(result);
+    return invoke_observed_void_rpc<&RealClient::put_batch_dummy_helper>(
+        TransferOperationKind::kWrite, "put_batch", sum_value_sizes(values),
+        true, keys, values, config, client_id_);
 }
 
 int DummyClient::put_parts(const std::string& key,
                            std::vector<std::span<const char>> values,
                            const ReplicateConfig& config) {
-    const auto start_time = std::chrono::steady_clock::now();
-    auto result = invoke_rpc<&RealClient::put_parts_dummy_helper, void>(
-        key, values, config, client_id_);
-    if (result.has_value()) {
-        ObserveTransferMetric(TransferOperationKind::kWrite, "put_parts",
-                              sum_value_sizes(values),
-                              elapsed_us_since(start_time), false);
-    }
-    return to_py_ret(result);
+    return invoke_observed_void_rpc<&RealClient::put_parts_dummy_helper>(
+        TransferOperationKind::kWrite, "put_parts", sum_value_sizes(values),
+        false, key, values, config, client_id_);
 }
 
 int DummyClient::upsert(const std::string& key, std::span<const char> value,
                         const ReplicateConfig& config) {
-    const auto start_time = std::chrono::steady_clock::now();
-    auto result = invoke_rpc<&RealClient::upsert_dummy_helper, void>(
+    return invoke_observed_void_rpc<&RealClient::upsert_dummy_helper>(
+        TransferOperationKind::kWrite, "upsert", value.size_bytes(), false,
         key, value, config, client_id_);
-    if (result.has_value()) {
-        ObserveTransferMetric(TransferOperationKind::kWrite, "upsert",
-                              value.size_bytes(),
-                              elapsed_us_since(start_time), false);
-    }
-    return to_py_ret(result);
 }
 
 int DummyClient::upsert_from(const std::string& key, void* buffer, size_t size,
                              const ReplicateConfig& config) {
     uint64_t dummy_addr = reinterpret_cast<uint64_t>(buffer);
-    const auto start_time = std::chrono::steady_clock::now();
-    auto result = invoke_rpc<&RealClient::upsert_from_dummy_helper, void>(
-        key, dummy_addr, size, config, client_id_);
-    if (result.has_value()) {
-        ObserveTransferMetric(TransferOperationKind::kWrite, "upsert_from",
-                              size, elapsed_us_since(start_time), false);
-    }
-    return to_py_ret(result);
+    return invoke_observed_void_rpc<&RealClient::upsert_from_dummy_helper>(
+        TransferOperationKind::kWrite, "upsert_from", size, false, key,
+        dummy_addr, size, config, client_id_);
 }
 
 std::vector<int> DummyClient::batch_upsert_from(
@@ -701,39 +673,29 @@ std::vector<int> DummyClient::batch_upsert_from(
     for (const auto& result : internal_results) {
         results.push_back(to_py_ret(result));
     }
-    ObserveTransferMetric(TransferOperationKind::kWrite,
-                          "batch_upsert_from",
-                          sum_successful_sizes(results, sizes),
-                          elapsed_us_since(start_time), true);
+    const size_t successful_bytes = sum_successful_sizes(results, sizes);
+    if (successful_bytes > 0) {
+        ObserveTransferMetric(TransferOperationKind::kWrite,
+                              "batch_upsert_from", successful_bytes,
+                              elapsed_us_since(start_time), true);
+    }
     return results;
 }
 
 int DummyClient::upsert_parts(const std::string& key,
                               std::vector<std::span<const char>> values,
                               const ReplicateConfig& config) {
-    const auto start_time = std::chrono::steady_clock::now();
-    auto result = invoke_rpc<&RealClient::upsert_parts_dummy_helper, void>(
-        key, values, config, client_id_);
-    if (result.has_value()) {
-        ObserveTransferMetric(TransferOperationKind::kWrite,
-                              "upsert_parts", sum_value_sizes(values),
-                              elapsed_us_since(start_time), false);
-    }
-    return to_py_ret(result);
+    return invoke_observed_void_rpc<&RealClient::upsert_parts_dummy_helper>(
+        TransferOperationKind::kWrite, "upsert_parts",
+        sum_value_sizes(values), false, key, values, config, client_id_);
 }
 
 int DummyClient::upsert_batch(const std::vector<std::string>& keys,
                               const std::vector<std::span<const char>>& values,
                               const ReplicateConfig& config) {
-    const auto start_time = std::chrono::steady_clock::now();
-    auto result = invoke_rpc<&RealClient::upsert_batch_dummy_helper, void>(
-        keys, values, config, client_id_);
-    if (result.has_value()) {
-        ObserveTransferMetric(TransferOperationKind::kWrite,
-                              "upsert_batch", sum_value_sizes(values),
-                              elapsed_us_since(start_time), true);
-    }
-    return to_py_ret(result);
+    return invoke_observed_void_rpc<&RealClient::upsert_batch_dummy_helper>(
+        TransferOperationKind::kWrite, "upsert_batch",
+        sum_value_sizes(values), true, keys, values, config, client_id_);
 }
 
 int DummyClient::remove(const std::string& key, bool force) {
@@ -912,8 +874,11 @@ std::vector<std::shared_ptr<BufferHandle>> DummyClient::batch_get_buffer(
             total_bytes += result->size();
         }
     }
-    ObserveTransferMetric(TransferOperationKind::kRead, "batch_get_buffer",
-                          total_bytes, elapsed_us_since(start_time), true);
+    if (total_bytes > 0) {
+        ObserveTransferMetric(TransferOperationKind::kRead,
+                              "batch_get_buffer", total_bytes,
+                              elapsed_us_since(start_time), true);
+    }
 
     return results;
 }
@@ -959,9 +924,12 @@ std::vector<std::vector<std::vector<int64_t>>> DummyClient::get_into_ranges(
                                                internal_results.error());
     }
     auto results = convert_ranged_read_results(internal_results.value());
-    ObserveTransferMetric(TransferOperationKind::kRead, "get_into_ranges",
-                          sum_positive_ranges(results),
-                          elapsed_us_since(start_time), true);
+    const size_t total_bytes = sum_positive_ranges(results);
+    if (total_bytes > 0) {
+        ObserveTransferMetric(TransferOperationKind::kRead,
+                              "get_into_ranges", total_bytes,
+                              elapsed_us_since(start_time), true);
+    }
     return results;
 }
 
@@ -985,9 +953,12 @@ std::vector<int> DummyClient::batch_put_from(
         results.push_back(to_py_ret(result));
     }
 
-    ObserveTransferMetric(TransferOperationKind::kWrite, "batch_put_from",
-                          sum_successful_sizes(results, sizes),
-                          elapsed_us_since(start_time), true);
+    const size_t successful_bytes = sum_successful_sizes(results, sizes);
+    if (successful_bytes > 0) {
+        ObserveTransferMetric(TransferOperationKind::kWrite,
+                              "batch_put_from", successful_bytes,
+                              elapsed_us_since(start_time), true);
+    }
 
     return results;
 }
@@ -1013,9 +984,12 @@ std::vector<int64_t> DummyClient::batch_get_into(
         results.push_back(to_py_ret(result));
     }
 
-    ObserveTransferMetric(TransferOperationKind::kRead, "batch_get_into",
-                          sum_positive_results(results),
-                          elapsed_us_since(start_time), true);
+    const size_t total_bytes = sum_positive_results(results);
+    if (total_bytes > 0) {
+        ObserveTransferMetric(TransferOperationKind::kRead,
+                              "batch_get_into", total_bytes,
+                              elapsed_us_since(start_time), true);
+    }
 
     return results;
 }
@@ -1045,10 +1019,14 @@ std::vector<int> DummyClient::batch_put_from_multi_buffers(
     for (const auto& result : internal_results) {
         results.push_back(to_py_ret(result));
     }
-    ObserveTransferMetric(TransferOperationKind::kWrite,
-                          "batch_put_from_multi_buffers",
-                          sum_successful_nested_sizes(results, all_sizes),
-                          elapsed_us_since(start_time), true);
+    const size_t successful_bytes =
+        sum_successful_nested_sizes(results, all_sizes);
+    if (successful_bytes > 0) {
+        ObserveTransferMetric(TransferOperationKind::kWrite,
+                              "batch_put_from_multi_buffers",
+                              successful_bytes,
+                              elapsed_us_since(start_time), true);
+    }
     return results;
 }
 
@@ -1070,10 +1048,12 @@ std::vector<int> DummyClient::batch_get_into_multi_buffers(
     for (const auto& result : internal_results) {
         results.push_back(to_py_ret(result));
     }
-    ObserveTransferMetric(TransferOperationKind::kRead,
-                          "batch_get_into_multi_buffers",
-                          sum_positive_results(results),
-                          elapsed_us_since(start_time), true);
+    const size_t total_bytes = sum_positive_results(results);
+    if (total_bytes > 0) {
+        ObserveTransferMetric(TransferOperationKind::kRead,
+                              "batch_get_into_multi_buffers", total_bytes,
+                              elapsed_us_since(start_time), true);
+    }
     return results;
 }
 

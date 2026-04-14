@@ -197,6 +197,21 @@ TEST_F(ClientMetricsTest, BandwidthSummaryRespectsEnvFlag) {
     unsetenv("MC_STORE_CLIENT_METRIC_BANDWIDTH");
 }
 
+TEST_F(ClientMetricsTest, SummaryCanOmitMasterRpcMetrics) {
+    auto metrics = ClientMetric::Create({}, false);
+    ASSERT_NE(metrics, nullptr);
+
+    metrics->ObserveTransferOperation(TransferOperationKind::kRead,
+                                      "get_buffer", 1024, 200);
+    std::string summary = metrics->summary_metrics();
+    std::string serialized;
+    metrics->serialize(serialized);
+
+    EXPECT_TRUE(summary.find("RPC Metrics Summary") == std::string::npos);
+    EXPECT_TRUE(serialized.find("mooncake_client_rpc_count") ==
+                std::string::npos);
+}
+
 TEST_F(ClientMetricsTest, SerializeWithDynamicLabels) {
     auto verify = [](const std::string& str) {
         EXPECT_TRUE(str.find("instance_id=\"12345\"") != std::string::npos);

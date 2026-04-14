@@ -77,13 +77,15 @@ uint64_t parseMetricsInterval() {
 
 ClientMetric::ClientMetric(uint64_t interval_seconds,
                            const std::map<std::string, std::string>& labels,
-                           bool bandwidth_reporting_enabled)
+                                                     bool bandwidth_reporting_enabled,
+                                                     bool master_rpc_metrics_enabled)
     : transfer_metric(labels),
       master_client_metric(labels),
       transfer_operation_metric(labels),
       should_stop_metrics_thread_(false),
       metrics_interval_seconds_(interval_seconds),
-      bandwidth_reporting_enabled_(bandwidth_reporting_enabled) {
+            bandwidth_reporting_enabled_(bandwidth_reporting_enabled),
+            master_rpc_metrics_enabled_(master_rpc_metrics_enabled) {
     last_report_snapshot_ = TransferSnapshot{
         static_cast<uint64_t>(transfer_metric.total_read_bytes.value()),
         static_cast<uint64_t>(transfer_metric.total_write_bytes.value()),
@@ -96,7 +98,8 @@ ClientMetric::ClientMetric(uint64_t interval_seconds,
 ClientMetric::~ClientMetric() { StopMetricsReportingThread(); }
 
 std::unique_ptr<ClientMetric> ClientMetric::Create(
-    const std::map<std::string, std::string>& labels) {
+    const std::map<std::string, std::string>& labels,
+    bool master_rpc_metrics_enabled) {
     if (!parseMetricsEnabled()) {
         LOG(INFO) << "Client metrics disabled (set MC_STORE_CLIENT_METRIC=0 to "
                      "disable)";
@@ -113,12 +116,15 @@ std::unique_ptr<ClientMetric> ClientMetric::Create(
               << " via MC_STORE_CLIENT_METRIC_BANDWIDTH";
 
     return std::make_unique<ClientMetric>(interval, labels,
-                                          bandwidth_reporting_enabled);
+                                          bandwidth_reporting_enabled,
+                                          master_rpc_metrics_enabled);
 }
 
 void ClientMetric::serialize(std::string& str) {
     transfer_metric.serialize(str);
-    master_client_metric.serialize(str);
+    if (master_rpc_metrics_enabled_) {
+        master_client_metric.serialize(str);
+    }
     transfer_operation_metric.serialize(str);
 }
 
@@ -127,8 +133,10 @@ std::string ClientMetric::summary_metrics() {
     ss << "Client Metrics Summary\n";
     ss << transfer_metric.summary_metrics(bandwidth_reporting_enabled_);
     ss << "\n";
-    ss << master_client_metric.summary_metrics();
-    ss << "\n";
+    if (master_rpc_metrics_enabled_) {
+        ss << master_client_metric.summary_metrics();
+        ss << "\n";
+    }
     ss << transfer_operation_metric.summary_metrics();
     return ss.str();
 }
@@ -198,11 +206,11 @@ void ClientMetric::StartMetricsReportingThread() {
                 // Print metrics summary
                 std::string summary = summary_metrics();
                 std::string bandwidth_report = BuildBandwidthReport();
-                LOG(INFO) << "Client Metrics Report:\n"
-                          << summary
-                          << (bandwidth_report.empty()
-                                  ? ""
-                                  : std::string("\n") + bandwidth_report);
+                std::string report = "Client Metrics Report:\n" + summary;
+                if (!bandwidth_report.empty()) {
+                    report += "\n" + bandwidth_report;
+                }
+                LOG(INFO) << report;
             }
             LOG(INFO) << "Client metrics reporting thread stopped";
         });
