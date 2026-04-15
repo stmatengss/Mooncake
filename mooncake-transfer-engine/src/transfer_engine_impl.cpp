@@ -327,6 +327,21 @@ int TransferEngineImpl::init(const std::string& metadata_conn_string,
         }
 #endif
         // TODO: install other transports automatically
+
+#ifdef USE_HIP
+        // HIP transport handles intra-node GPU P2P via XGMI/IPC and can
+        // coexist with the cross-node transport (RDMA/TCP) selected above.
+        {
+            Transport* hip_transport =
+                multi_transports_->installTransport("hip", nullptr);
+            if (!hip_transport) {
+                LOG(WARNING) << "Failed to install HIP transport "
+                                "(intra-node GPU P2P unavailable)";
+            } else {
+                LOG(INFO) << "HIP transport installed for intra-node GPU P2P";
+            }
+        }
+#endif
     }
 #endif
 

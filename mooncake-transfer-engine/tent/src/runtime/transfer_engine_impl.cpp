@@ -291,6 +291,7 @@ Status TransferEngineImpl::construct() {
     local_segment_name_ = conf_->get("local_segment_name", "");
     CHECK_STATUS(getRpcServerPortFromConfig(*conf_, 0, port_));
     merge_requests_ = conf_->get("merge_requests", true);
+    max_failover_attempts_ = conf_->get("max_failover_attempts", 3);
     if (!hostname_.empty())
         CHECK_STATUS(checkLocalIpAddress(hostname_, ipv6_));
     else
@@ -593,6 +594,13 @@ Status TransferEngineImpl::registerLocalMemory(std::vector<void*> addr_list,
 std::vector<TransportType> TransferEngineImpl::getSupportedTransports(
     TransportType request_type) {
     std::vector<TransportType> result;
+    if (request_type != UNSPEC) {
+        if (request_type >= 0 && request_type < kSupportedTransportTypes &&
+            transport_list_[request_type]) {
+            result.push_back(request_type);
+        }
+        return result;
+    }
     if (transport_list_[MNNVL]) result.push_back(MNNVL);
     if (transport_list_[NVLINK]) result.push_back(NVLINK);
     if (transport_list_[RDMA]) result.push_back(RDMA);
@@ -611,6 +619,10 @@ Status TransferEngineImpl::registerLocalMemory(std::vector<void*> addr_list,
             "Mismatched addresses and sizes in registerLocalMemory" LOC_MARK);
     }
     auto transports = getSupportedTransports(options.type);
+    if (transports.empty()) {
+        return Status::InvalidArgument(
+            "No available transport for registerLocalMemory" LOC_MARK);
+    }
 
     // Build BufferDescs: warm-up → NUMA probe → fill location
     std::vector<BufferDesc> desc_list;
@@ -794,9 +806,13 @@ TransportType TransferEngineImpl::getTransportType(const Request& request,
     } else {
         auto entry = desc->findBuffer(request.target_offset, request.length);
         if (!entry) return UNSPEC;
-        bool same_machine =
-            (desc->machine_id ==
-             metadata_->segmentManager().getLocal()->machine_id);
+        bool same_machine = (request.target_id == LOCAL_SEGMENT_ID);
+        if (!same_machine) {
+            auto local_desc = metadata_->segmentManager().getLocal();
+            same_machine = local_desc && !desc->machine_id.empty() &&
+                           !local_desc->machine_id.empty() &&
+                           desc->machine_id == local_desc->machine_id;
+        }
         auto remote_mtype = getTypeEnum(LocationParser(entry->location).type());
         for (auto type : entry->transports) {
             if ((type == NVLINK || type == SHM) && !same_machine) continue;
@@ -806,6 +822,29 @@ TransportType TransferEngineImpl::getTransportType(const Request& request,
             }
         }
         return UNSPEC;
+    }
+}
+
+static const char* transportTypeName(TransportType type) {
+    switch (type) {
+        case RDMA:
+            return "RDMA";
+        case MNNVL:
+            return "MNNVL";
+        case SHM:
+            return "SHM";
+        case NVLINK:
+            return "NVLINK";
+        case GDS:
+            return "GDS";
+        case IOURING:
+            return "IOURING";
+        case TCP:
+            return "TCP";
+        case AscendDirect:
+            return "AscendDirect";
+        default:
+            return "UNSPEC";
     }
 }
 
@@ -1211,13 +1250,31 @@ Status TransferEngineImpl::submitTransfer(
 
 Status TransferEngineImpl::resubmitTransferTask(Batch* batch, size_t task_id) {
     auto& task = batch->task_list[task_id];
+    auto prev_type = task.type;
+
+    if (++task.failover_count > max_failover_attempts_) {
+        LOG(WARNING) << "Task failover limit reached ("
+                     << max_failover_attempts_
+                     << "), last transport=" << transportTypeName(prev_type);
+        return Status::InvalidEntry(
+            "Failover limit exceeded, all transports exhausted");
+    }
+
     if (task.staging)
         task.staging = false;
     else
         task.xport_priority++;
     auto type = resolveTransport(task.request, task.xport_priority);
-    if (type == UNSPEC)
+    if (type == UNSPEC) {
+        LOG(WARNING) << "No more transports available after "
+                     << transportTypeName(prev_type) << " failed";
         return Status::InvalidEntry("All available transports are failed");
+    }
+
+    LOG(INFO) << "Transport failover: " << transportTypeName(prev_type)
+              << " -> " << transportTypeName(type) << " (attempt "
+              << task.failover_count << "/" << max_failover_attempts_ << ")";
+    TENT_RECORD_TRANSPORT_FAILOVER();
 
     auto& transport = transport_list_[type];
     if (!batch->sub_batch[type])
@@ -1295,6 +1352,11 @@ Status TransferEngineImpl::getTransferStatus(BatchID batch_id, size_t task_id,
     }
     batch->task_list[task_id].status = task_status.s;
 
+    if (task_status.s == FAILED && resubmitTransferTask(batch, task_id).ok()) {
+        task_status.s = PENDING;
+        batch->task_list[task_id].status = PENDING;
+    }
+
     // Record metrics when task transitions to terminal state
     recordTaskCompletionMetrics(batch->task_list[task_id], prev_status,
                                 task_status.s);
@@ -1356,14 +1418,24 @@ Status TransferEngineImpl::getTransferStatus(BatchID batch_id,
             CHECK_STATUS(transport->getTransferStatus(
                 sub_batch, task.sub_task_id, task_status));
         }
+        // memorize task result
+        task.status = task_status.s;
+
+        // Attempt failover before status aggregation so that a
+        // successfully resubmitted task appears as PENDING and does not
+        // overwrite a permanent FAILED from another task in the batch.
+        if (task_status.s == FAILED &&
+            resubmitTransferTask(batch, task_id).ok()) {
+            task.status = PENDING;
+            task_status.s = PENDING;
+        }
+
         if (task_status.s == COMPLETED) {
             success_tasks++;
             overall_status.transferred_bytes += task_status.transferred_bytes;
-        } else {
+        } else if (task_status.s != PENDING) {
             overall_status.s = task_status.s;
         }
-        // memorize task result
-        task.status = task_status.s;
 
         // Record metrics when task transitions to terminal state
         recordTaskCompletionMetrics(batch->task_list[task_id], prev_status,

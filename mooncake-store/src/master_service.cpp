@@ -2174,10 +2174,13 @@ tl::expected<void, ErrorCode> MasterService::PushOffloadingQueue(
             offloading_queue_limit_) {
             return tl::make_unexpected(ErrorCode::KEYS_ULTRA_LIMIT);
         }
-        local_disk_segment_it->second->offloading_objects.emplace(
+        auto res = local_disk_segment_it->second->offloading_objects.emplace(
             key, replica.get_descriptor()
                      .get_memory_descriptor()
                      .buffer_descriptor.size_);
+        if (!res.second) {
+            return tl::make_unexpected(ErrorCode::OBJECT_ALREADY_EXISTS);
+        }
     }
     return {};
 }
