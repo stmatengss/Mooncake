@@ -657,10 +657,10 @@ jobs:
   spell-check:
     name: Spell Check with Typos
     if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event.action == 'opened' ||
-      contains(github.event.pull_request.labels.*.name, 'run-ci')
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event.action == 'opened' ||
+       contains(github.event.pull_request.labels.*.name, 'run-ci'))
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout Actions Repository
@@ -673,10 +673,10 @@ jobs:
   clang-format:
     name: Check code format
     if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event.action == 'opened' ||
-      contains(github.event.pull_request.labels.*.name, 'run-ci')
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event.action == 'opened' ||
+       contains(github.event.pull_request.labels.*.name, 'run-ci'))
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout Actions Repository
