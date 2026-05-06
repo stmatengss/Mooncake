@@ -98,46 +98,72 @@ Mooncake establishes a full-stack, Tensor-oriented AI infrastructure where Tenso
 
 Mooncake already supports both domestic and international accelerator and interconnect ecosystems. The summary below is based on hardware/runtime combinations with explicit build switches or dedicated documentation in this repository.
 
-**Hardware vendor logos**
-
 <div align="center">
-  <img src="image/partners/huawei_logo.png" alt="Huawei" height="28" hspace="10" />
-  <img src="image/partners/moore_thread_logo.jpg" alt="Moore Threads" height="28" hspace="10" />
-  <img src="image/partners/aliyun_logo.png" alt="Alibaba Cloud" height="28" hspace="10" />
-  <img src="image/partners/nvidia_logo.png" alt="NVIDIA" height="28" hspace="10" />
-  <img src="image/partners/amd_logo.png" alt="AMD" height="28" hspace="10" />
+  <table>
+    <tr>
+      <td align="center"><img src="image/partners/huawei_logo.png" alt="Huawei Ascend" height="28" /><br/><sub>Ascend</sub></td>
+      <td align="center"><img src="https://img.shields.io/badge/Cambricon-MLU-ff6a00?style=for-the-badge" alt="Cambricon MLU" /><br/><sub>MLU</sub></td>
+      <td align="center"><img src="image/partners/moore_thread_logo.jpg" alt="Moore Threads MUSA" height="28" /><br/><sub>MUSA</sub></td>
+      <td align="center"><img src="https://img.shields.io/badge/MetaX-MACA-0080ff?style=for-the-badge" alt="MetaX MACA" /><br/><sub>MACA</sub></td>
+      <td align="center"><img src="image/partners/nvidia_logo.png" alt="NVIDIA CUDA" height="28" /><br/><sub>CUDA / NVLink</sub></td>
+      <td align="center"><img src="image/partners/amd_logo.png" alt="AMD ROCm HIP" height="28" /><br/><sub>ROCm / HIP</sub></td>
+    </tr>
+  </table>
 </div>
 
-> The logo strip above reuses assets already bundled in this repository. Additional supported platforms such as Cambricon MLU, MetaX (Muxi) MACA, and AWS EFA are listed in the tables below.
+<div align="center">
+  <img src="image/partners/aliyun_logo.png" alt="Alibaba Cloud eRDMA" height="24" />
+  &nbsp;
+  <img src="https://img.shields.io/badge/AWS-EFA-ff9900?style=for-the-badge&logo=amazonaws&logoColor=white" alt="AWS EFA" />
+  &nbsp;
+  <img src="https://img.shields.io/badge/InfiniBand-RDMA-6f42c1?style=for-the-badge" alt="InfiniBand RDMA" />
+  &nbsp;
+  <img src="https://img.shields.io/badge/RoCE-RDMA-0f766e?style=for-the-badge" alt="RoCE RDMA" />
+  &nbsp;
+  <img src="https://img.shields.io/badge/NVMe--oF-Storage-4f46e5?style=for-the-badge" alt="NVMe over Fabrics" />
+  &nbsp;
+  <img src="https://img.shields.io/badge/CXL-Memory%20Pooling-525252?style=for-the-badge" alt="CXL" />
+</div>
+
+> The first row highlights accelerator runtimes already integrated into Mooncake. The second row highlights the major networking and storage fabrics supported by Transfer Engine.
+
+#### At a glance
+
+| Ecosystem | Platforms | Current support |
+|-----------|-----------|-----------------|
+| Domestic accelerators | Huawei Ascend, Cambricon MLU, Moore Threads MUSA, MetaX MACA | Supported through dedicated build switches and runtime-aware transports |
+| International accelerators | NVIDIA CUDA / NVLink, AMD ROCm / HIP | Supported through CUDA, NVLink, GPUDirect, and HIP integration |
+| High-speed networking | InfiniBand, RoCE, eRDMA, AWS EFA | Supported through `rdma` and `efa` transport paths |
+| Disaggregated memory and storage | NVMe-oF, CXL | Supported through dedicated Transfer Engine backends |
 
 #### Domestic hardware ecosystems
 
-| Vendor / Platform | Hardware / Runtime | Current support in Mooncake | How it is exposed |
-|-------------------|--------------------|-----------------------------|-------------------|
-| Huawei | Ascend NPUs | Supported | `-DUSE_ASCEND=ON`, `-DUSE_ASCEND_DIRECT=ON`, `-DUSE_UBSHMEM=ON`, `-DUSE_ASCEND_HETEROGENEOUS=ON`; supports Ascend transport, Ascend Direct Transport, UBShmem fabric memory, and heterogeneous Ascend-GPU transfer |
-| Cambricon | MLU + Neuware | Supported | `-DUSE_MLU=ON`; MLU memory detection, topology discovery, and RDMA registration use the standard `rdma` data path |
-| Moore Threads | MUSA GPUs | Supported | `-DUSE_MUSA=ON`; accelerator-aware data transfer with MUSA runtime integration |
-| MetaX (Muxi) | MACA GPUs (for example C500) | Supported | `-DUSE_MACA=ON`; source build support through the MACA SDK |
-| Alibaba Cloud | eRDMA NICs | Supported | Available through the standard `rdma` protocol path |
+| Vendor / Platform | Icon | Hardware / Runtime | Current support in Mooncake | How it is exposed |
+|-------------------|------|--------------------|-----------------------------|-------------------|
+| Huawei | <img src="image/partners/huawei_logo.png" alt="Huawei" height="18" /> | Ascend NPUs | Supported | `-DUSE_ASCEND=ON`, `-DUSE_ASCEND_DIRECT=ON`, `-DUSE_UBSHMEM=ON`, `-DUSE_ASCEND_HETEROGENEOUS=ON`; supports Ascend transport, Ascend Direct Transport, UBShmem fabric memory, and heterogeneous Ascend-GPU transfer |
+| Cambricon | <img src="https://img.shields.io/badge/MLU-Cambricon-ff6a00?style=flat-square" alt="Cambricon MLU" /> | MLU + Neuware | Supported | `-DUSE_MLU=ON`; MLU memory detection, topology discovery, and RDMA registration use the standard `rdma` data path |
+| Moore Threads | <img src="image/partners/moore_thread_logo.jpg" alt="Moore Threads" height="18" /> | MUSA GPUs | Supported | `-DUSE_MUSA=ON`; accelerator-aware data transfer with MUSA runtime integration |
+| MetaX (Muxi) | <img src="https://img.shields.io/badge/MACA-MetaX-0080ff?style=flat-square" alt="MetaX MACA" /> | MACA GPUs (for example C500) | Supported | `-DUSE_MACA=ON`; source build support through the MACA SDK |
+| Alibaba Cloud | <img src="image/partners/aliyun_logo.png" alt="Alibaba Cloud" height="18" /> | eRDMA NICs | Supported | Available through the standard `rdma` protocol path |
 
 #### International hardware ecosystems
 
-| Vendor / Platform | Hardware / Runtime | Current support in Mooncake | How it is exposed |
-|-------------------|--------------------|-----------------------------|-------------------|
-| NVIDIA | CUDA GPUs | Supported | `-DUSE_CUDA=ON`; supports CUDA memory, GPUDirect RDMA, and GPUDirect Storage |
-| NVIDIA | NVLink / Multi-Node NVLink | Supported | `-DUSE_INTRA_NVLINK=ON` for intra-node NVLink, `-DUSE_MNNVL=ON` for multi-node NVLink |
-| AMD | ROCm / HIP GPUs | Supported | `-DUSE_HIP=ON`; HIP transport for AMD GPU communication |
-| AWS | Elastic Fabric Adapter (EFA) | Supported | `-DUSE_EFA=ON`; EFA transport built on libfabric SRD |
-| Standard RDMA ecosystem | InfiniBand / RoCE NICs | Supported | Available through the standard `rdma` protocol path |
+| Vendor / Platform | Icon | Hardware / Runtime | Current support in Mooncake | How it is exposed |
+|-------------------|------|--------------------|-----------------------------|-------------------|
+| NVIDIA | <img src="image/partners/nvidia_logo.png" alt="NVIDIA" height="18" /> | CUDA GPUs | Supported | `-DUSE_CUDA=ON`; supports CUDA memory, GPUDirect RDMA, and GPUDirect Storage |
+| NVIDIA | <img src="image/partners/nvidia_logo.png" alt="NVIDIA" height="18" /> | NVLink / Multi-Node NVLink | Supported | `-DUSE_INTRA_NVLINK=ON` for intra-node NVLink, `-DUSE_MNNVL=ON` for multi-node NVLink |
+| AMD | <img src="image/partners/amd_logo.png" alt="AMD" height="18" /> | ROCm / HIP GPUs | Supported | `-DUSE_HIP=ON`; HIP transport for AMD GPU communication |
+| AWS | <img src="https://img.shields.io/badge/AWS-EFA-ff9900?style=flat-square&logo=amazonaws&logoColor=white" alt="AWS EFA" /> | Elastic Fabric Adapter (EFA) | Supported | `-DUSE_EFA=ON`; EFA transport built on libfabric SRD |
+| Standard RDMA ecosystem | <img src="https://img.shields.io/badge/RDMA-InfiniBand%20%2F%20RoCE-6f42c1?style=flat-square" alt="RDMA" /> | InfiniBand / RoCE NICs | Supported | Available through the standard `rdma` protocol path |
 
 #### Vendor-neutral hardware capabilities
 
-| Capability | Hardware scope | Notes |
-|------------|----------------|-------|
-| Baseline networking | Standard TCP/IP network | `tcp` works in all environments |
-| High-performance networking | RDMA-capable NICs | Covers InfiniBand, RoCE, eRDMA, and related RDMA deployments |
-| Direct storage access | NVMe-oF capable storage | Enabled with `-DUSE_NVMEOF=ON` |
-| Memory pooling / sharing | CXL-capable hardware | Enabled with `-DUSE_CXL=ON` |
+| Capability | Icon | Hardware scope | Notes |
+|------------|------|----------------|-------|
+| Baseline networking | <img src="https://img.shields.io/badge/TCP-Universal-2563eb?style=flat-square" alt="TCP" /> | Standard TCP/IP network | `tcp` works in all environments |
+| High-performance networking | <img src="https://img.shields.io/badge/RDMA-InfiniBand%20%2F%20RoCE%20%2F%20eRDMA-0f766e?style=flat-square" alt="RDMA fabrics" /> | RDMA-capable NICs | Covers InfiniBand, RoCE, eRDMA, and related RDMA deployments |
+| Direct storage access | <img src="https://img.shields.io/badge/NVMe--oF-Storage-4f46e5?style=flat-square" alt="NVMe-oF" /> | NVMe-oF capable storage | Enabled with `-DUSE_NVMEOF=ON` |
+| Memory pooling / sharing | <img src="https://img.shields.io/badge/CXL-Memory%20Pooling-525252?style=flat-square" alt="CXL" /> | CXL-capable hardware | Enabled with `-DUSE_CXL=ON` |
 
 <h2 id="show-cases">🔥 Show Cases</h2>
 
