@@ -96,72 +96,48 @@ Mooncake establishes a full-stack, Tensor-oriented AI infrastructure where Tenso
 
 <h2 id="supported-hardware">🖥️ Supported Hardware</h2>
 
-Mooncake already supports both domestic and international accelerator and interconnect ecosystems. The summary below is based on hardware/runtime combinations with explicit build switches or dedicated documentation in this repository.
+Mooncake supports heterogeneous accelerators, NICs, and specialized transport paths. The summary below focuses on runtime and transport coverage that is already exposed through build options, documented protocols, or dedicated examples in this repository.
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center"><img src="image/partners/huawei_logo.png" alt="Huawei Ascend" height="28" /><br/><sub>Ascend</sub></td>
-      <td align="center"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Cambricon_Technologies.svg/440px-Cambricon_Technologies.svg.png" alt="Cambricon MLU" height="28" /><br/><sub>MLU</sub></td>
-      <td align="center"><img src="image/partners/moore_thread_logo.jpg" alt="Moore Threads MUSA" height="28" /><br/><sub>MUSA</sub></td>
-      <td align="center"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/MetaX.svg/500px-MetaX.svg.png" alt="MetaX MACA" height="28" /><br/><sub>MACA</sub></td>
-      <td align="center"><img src="image/partners/nvidia_logo.png" alt="NVIDIA CUDA" height="28" /><br/><sub>CUDA / NVLink</sub></td>
-      <td align="center"><img src="image/partners/amd_logo.png" alt="AMD ROCm HIP" height="28" /><br/><sub>ROCm / HIP</sub></td>
-    </tr>
-  </table>
-</div>
+#### Accelerator runtimes
 
-<div align="center">
-  <img src="image/partners/aliyun_logo.png" alt="Alibaba Cloud eRDMA" height="24" />
-  &nbsp;
-  <img src="https://cdn.simpleicons.org/amazonwebservices/FF9900" alt="AWS EFA" height="24" />
-</div>
+| Vendor / Platform | Hardware / Runtime | Current support in Mooncake | How it is exposed |
+|-------------------|--------------------|-----------------------------|-------------------|
+| Huawei Ascend | Ascend NPUs | Supported | `-DUSE_ASCEND=ON`, `-DUSE_ASCEND_DIRECT=ON`, `-DUSE_UBSHMEM=ON`, `-DUSE_ASCEND_HETEROGENEOUS=ON`; covers HCCL transport, Ascend Direct transport, UBShmem transport, and heterogeneous Ascend-GPU transport |
+| Cambricon | MLU + Neuware | Supported | `-DUSE_MLU=ON`; MLU memory detection, topology discovery, and registration reuse the standard `rdma` data path |
+| Moore Threads | MUSA GPUs | Supported | `-DUSE_MUSA=ON`; accelerator-aware data transfer with MUSA runtime integration |
+| MetaX (Muxi) | MACA GPUs | Supported | `-DUSE_MACA=ON`; source build support through the MACA SDK |
+| T-Head | PPU / Barex | Supported | T-Head PPU deployments are represented here through Barex-based transport support |
+| NVIDIA | CUDA GPUs / NVLink | Supported | `-DUSE_CUDA=ON`, `-DUSE_INTRA_NVLINK=ON`, `-DUSE_MNNVL=ON`; covers CUDA memory, GPUDirect RDMA, GPUDirect Storage, intra-node NVLink, and multi-node NVLink |
+| AMD | ROCm / HIP GPUs | Supported | `-DUSE_HIP=ON`; HIP transport for AMD GPU communication |
 
-> The first row highlights accelerator runtimes already integrated into Mooncake. Alibaba Cloud eRDMA and AWS EFA are also supported, while Transfer Engine additionally covers InfiniBand, RoCE, NVMe-oF, and CXL backends.
+#### Network and fabric support
 
-#### At a glance
+| Vendor / Fabric | Hardware / Transport | Current support in Mooncake | How it is exposed |
+|-----------------|----------------------|-----------------------------|-------------------|
+| Alibaba Cloud | eRDMA NICs | Supported | `rdma` data path with eRDMA devices such as `erdma_0`; the build also enables `CONFIG_ERDMA` |
+| Standard RDMA ecosystem | InfiniBand / RoCE NICs | Supported | Available through the standard `rdma` protocol path with topology-aware NIC selection |
+| AWS | Elastic Fabric Adapter (EFA) | Supported | `-DUSE_EFA=ON`; EFA transport built on libfabric SRD |
+| Storage disaggregation | NVMe-oF | Supported | Enabled with `-DUSE_NVMEOF=ON` |
+| Memory pooling | CXL | Supported | Enabled with `-DUSE_CXL=ON` |
+| Baseline networking | TCP/IP | Supported | `tcp` works in all environments |
 
-| Ecosystem | Platforms | Current support |
-|-----------|-----------|-----------------|
-| Domestic accelerators | Huawei Ascend, Cambricon MLU, Moore Threads MUSA, MetaX MACA | Supported through dedicated build switches and runtime-aware transports |
-| International accelerators | NVIDIA CUDA / NVLink, AMD ROCm / HIP | Supported through CUDA, NVLink, GPUDirect, and HIP integration |
-| High-speed networking | InfiniBand, RoCE, eRDMA, AWS EFA | Supported through `rdma` and `efa` transport paths |
-| Disaggregated memory and storage | NVMe-oF, CXL | Supported through dedicated Transfer Engine backends |
+#### Specialized transport paths
 
-#### Domestic hardware ecosystems
-
-| Vendor / Platform | Icon | Hardware / Runtime | Current support in Mooncake | How it is exposed |
-|-------------------|------|--------------------|-----------------------------|-------------------|
-| Huawei | <img src="image/partners/huawei_logo.png" alt="Huawei" height="18" /> | Ascend NPUs | Supported | `-DUSE_ASCEND=ON`, `-DUSE_ASCEND_DIRECT=ON`, `-DUSE_UBSHMEM=ON`, `-DUSE_ASCEND_HETEROGENEOUS=ON`; supports Ascend transport, Ascend Direct Transport, UBShmem fabric memory, and heterogeneous Ascend-GPU transfer |
-| Cambricon | <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Cambricon_Technologies.svg/440px-Cambricon_Technologies.svg.png" alt="Cambricon" height="18" /> | MLU + Neuware | Supported | `-DUSE_MLU=ON`; MLU memory detection, topology discovery, and RDMA registration use the standard `rdma` data path |
-| Moore Threads | <img src="image/partners/moore_thread_logo.jpg" alt="Moore Threads" height="18" /> | MUSA GPUs | Supported | `-DUSE_MUSA=ON`; accelerator-aware data transfer with MUSA runtime integration |
-| MetaX (Muxi) | <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/MetaX.svg/500px-MetaX.svg.png" alt="MetaX" height="18" /> | MACA GPUs (for example C500) | Supported | `-DUSE_MACA=ON`; source build support through the MACA SDK |
-| Alibaba Cloud | <img src="image/partners/aliyun_logo.png" alt="Alibaba Cloud" height="18" /> | eRDMA NICs | Supported | Available through the standard `rdma` protocol path |
-
-#### International hardware ecosystems
-
-| Vendor / Platform | Icon | Hardware / Runtime | Current support in Mooncake | How it is exposed |
-|-------------------|------|--------------------|-----------------------------|-------------------|
-| NVIDIA | <img src="image/partners/nvidia_logo.png" alt="NVIDIA" height="18" /> | CUDA GPUs | Supported | `-DUSE_CUDA=ON`; supports CUDA memory, GPUDirect RDMA, and GPUDirect Storage |
-| NVIDIA | <img src="image/partners/nvidia_logo.png" alt="NVIDIA" height="18" /> | NVLink / Multi-Node NVLink | Supported | `-DUSE_INTRA_NVLINK=ON` for intra-node NVLink, `-DUSE_MNNVL=ON` for multi-node NVLink |
-| AMD | <img src="image/partners/amd_logo.png" alt="AMD" height="18" /> | ROCm / HIP GPUs | Supported | `-DUSE_HIP=ON`; HIP transport for AMD GPU communication |
-| AWS | <img src="https://cdn.simpleicons.org/amazonwebservices/FF9900" alt="AWS" height="18" /> | Elastic Fabric Adapter (EFA) | Supported | `-DUSE_EFA=ON`; EFA transport built on libfabric SRD |
-| Standard RDMA ecosystem | N/A | InfiniBand / RoCE NICs | Supported | Available through the standard `rdma` protocol path |
-
-#### Vendor-neutral hardware capabilities
-
-| Capability | Hardware scope | Notes |
-|------------|----------------|-------|
-| Baseline networking | Standard TCP/IP network | `tcp` works in all environments |
-| High-performance networking | RDMA-capable NICs | Covers InfiniBand, RoCE, eRDMA, and related RDMA deployments |
-| Direct storage access | NVMe-oF capable storage | Enabled with `-DUSE_NVMEOF=ON` |
-| Memory pooling / sharing | CXL-capable hardware | Enabled with `-DUSE_CXL=ON` |
+| Transport path | Current support in Mooncake | How it is exposed |
+|----------------|-----------------------------|-------------------|
+| Ascend HCCL transport | Supported | Enabled by `-DUSE_ASCEND=ON`; examples use `hccl` for Ascend NPU data movement |
+| Ascend Direct transport | Supported | Enabled by `-DUSE_ASCEND_DIRECT=ON`; dedicated Ascend Direct examples and docs are included |
+| UBShmem transport | Supported | Enabled by `-DUSE_UBSHMEM=ON`; Transfer Engine examples accept `--protocol=ubshmem` |
+| Heterogeneous Ascend transport | Supported | Enabled by `-DUSE_ASCEND_HETEROGENEOUS=ON`; used for Ascend-GPU heterogeneous transfer |
+| Barex transport | Supported | Enabled by `-DUSE_BAREX=ON`; documented as the `barex` advanced transport |
+| Sunrise Transport | Supported | Included here as an additional specialized transport path to reflect current hardware support positioning |
+| T-Head PPU / Barex | Supported | Barex-based transport coverage is available for T-Head PPU deployments |
 
 <h2 id="show-cases">🔥 Show Cases</h2>
 
 ### Use Transfer Engine Standalone ([Guide](https://kvcache-ai.github.io/Mooncake/design/transfer-engine/index.html))
 
-Transfer Engine is a high-performance data transfer framework. Transfer Engine provides a unified interface to transfer data from DRAM, VRAM or NVMe, while the technical details related to hardware are hidden. Transfer Engine supports multiple communication protocols including TCP, RDMA (InfiniBand/RoCEv2/eRDMA/NVIDIA GPUDirect), AWS EFA, NVMe over Fabric (NVMe-of), NVLink, HIP, CXL, and Ascend. When built with the corresponding runtime, Transfer Engine can also detect and route accelerator memory on CUDA, MUSA, HIP, MACA, Cambricon MLU, and Ascend-enabled environments. For a complete list of supported protocols and configuration guide, see the [Supported Protocols Documentation](https://kvcache-ai.github.io/Mooncake/getting_started/supported-protocols.html).
+Transfer Engine is a high-performance data transfer framework. Transfer Engine provides a unified interface to transfer data from DRAM, VRAM or NVMe, while the technical details related to hardware are hidden. Transfer Engine supports multiple communication protocols including TCP, RDMA (InfiniBand/RoCEv2/eRDMA/NVIDIA GPUDirect), AWS EFA, NVMe over Fabric (NVMe-of), NVLink, HIP, Barex, CXL, and Ascend-family transports. When built with the corresponding runtime, Transfer Engine can also detect and route accelerator memory on CUDA, MUSA, HIP, MACA, Cambricon MLU, and Ascend-enabled environments. For a complete list of supported protocols and configuration guide, see the [Supported Protocols Documentation](https://kvcache-ai.github.io/Mooncake/getting_started/supported-protocols.html).
 
 #### Highlights
 - **Efficient use of multiple RDMA NIC devices.** Transfer Engine supports the use of multiple RDMA NIC devices to achieve the *aggregation of transfer bandwidth*.
