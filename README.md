@@ -98,6 +98,22 @@ Mooncake establishes a full-stack, Tensor-oriented AI infrastructure where Tenso
 
 Mooncake supports heterogeneous accelerators, NICs, and specialized transport paths. The summary below focuses on runtime and transport coverage that is already exposed through build options, documented protocols, or dedicated examples in this repository.
 
+<div align="center">
+  <table>
+    <tr>
+      <td align="center"><img src="image/partners/huawei_logo.png" alt="Huawei" height="26" /><br/><sub>Huawei</sub></td>
+      <td align="center"><img src="https://www.cambricon.com/favicon.ico" alt="Cambricon" height="24" /><br/><sub>Cambricon</sub></td>
+      <td align="center"><img src="image/partners/moore_thread_logo.jpg" alt="Moore Threads" height="26" /><br/><sub>Moore Threads</sub></td>
+      <td align="center"><img src="https://www.metax-tech.com/favicon.ico" alt="MetaX" height="24" /><br/><sub>MetaX</sub></td>
+      <td align="center"><img src="https://www.t-head.cn/favicon.ico" alt="T-Head" height="24" /><br/><sub>T-Head</sub></td>
+      <td align="center"><img src="image/partners/nvidia_logo.png" alt="NVIDIA" height="26" /><br/><sub>NVIDIA</sub></td>
+      <td align="center"><img src="image/partners/amd_logo.png" alt="AMD" height="26" /><br/><sub>AMD</sub></td>
+      <td align="center"><img src="image/partners/aliyun_logo.png" alt="Alibaba Cloud" height="24" /><br/><sub>Alibaba Cloud</sub></td>
+      <td align="center"><img src="https://cdn.simpleicons.org/amazonwebservices/FF9900" alt="AWS" height="24" /><br/><sub>AWS</sub></td>
+    </tr>
+  </table>
+</div>
+
 #### Accelerator runtimes
 
 | Vendor / Platform | Hardware / Runtime | Current support in Mooncake | How it is exposed |
