@@ -2252,6 +2252,119 @@ int64_t RealClient::get_into(const std::string &key, void *buffer,
     return to_py_ret(get_into_range_internal(key, buffer, 0, 0, size, true));
 }
 
+tl::expected<int64_t, ErrorCode> RealClient::get_into_with_metadata_internal(
+    const std::string &key, void *buffer, size_t size, void *metadata_buffer,
+    size_t metadata_size) {
+    if (!client_) {
+        LOG(ERROR) << "Client is not initialized";
+        return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    if ((buffer == nullptr && size != 0) ||
+        (buffer == nullptr && metadata_buffer == nullptr)) {
+        LOG(ERROR) << "Invalid buffer arguments for get_into_with_metadata";
+        return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    auto metadata_result = resolve_ranged_read_metadata(key);
+    if (!metadata_result) {
+        return tl::unexpected(metadata_result.error());
+    }
+
+    const auto &resolved = metadata_result.value();
+    const auto &query_result = resolved.query_result;
+    const auto &replica = resolved.replica;
+    const uint64_t total_size = resolved.total_size;
+
+    if (metadata_size > total_size) {
+        LOG(ERROR) << "Metadata prefix is larger than object size for key: "
+                   << key << ", metadata_size=" << metadata_size
+                   << ", total_size=" << total_size;
+        return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    const size_t payload_size = total_size - metadata_size;
+    if (buffer != nullptr && size < payload_size) {
+        LOG(ERROR) << "Payload buffer too small for key: " << key
+                   << ", required=" << payload_size
+                   << ", provided=" << size;
+        return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    if (replica.is_memory_replica()) {
+        if (metadata_buffer != nullptr && metadata_size > 0) {
+            auto read_metadata_result =
+                execute_ranged_read(key, metadata_buffer, 0, 0, metadata_size,
+                                    resolved, false);
+            if (!read_metadata_result) {
+                return tl::unexpected(read_metadata_result.error());
+            }
+        }
+
+        if (buffer != nullptr && payload_size > 0) {
+            auto read_payload_result = execute_ranged_read(
+                key, buffer, 0, metadata_size, payload_size, resolved, false);
+            if (!read_payload_result) {
+                return tl::unexpected(read_payload_result.error());
+            }
+        }
+
+        return static_cast<int64_t>(payload_size);
+    }
+
+    if (!replica.is_disk_replica() && !replica.is_local_disk_replica()) {
+        LOG(ERROR) << "Unsupported replica type for get_into_with_metadata";
+        return tl::unexpected(ErrorCode::INVALID_REPLICA);
+    }
+
+    if (!client_buffer_allocator_) {
+        LOG(ERROR) << "Client buffer allocator is not initialized";
+        return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    auto staging_handle_result = client_buffer_allocator_->allocate(total_size);
+    if (!staging_handle_result) {
+        LOG(ERROR) << "Failed to allocate staging buffer for key: " << key
+                   << ", size=" << total_size;
+        return tl::unexpected(ErrorCode::BUFFER_OVERFLOW);
+    }
+
+    auto staging_handle = std::move(*staging_handle_result);
+    char *staging_ptr = static_cast<char *>(staging_handle.ptr());
+    auto staging_slices = split_into_slices(staging_ptr, total_size);
+
+    auto get_result = client_->Get(key, query_result, staging_slices);
+    if (!get_result) {
+        LOG(ERROR) << "Get failed for key: " << key
+                   << " with error: " << toString(get_result.error());
+        return tl::unexpected(get_result.error());
+    }
+
+    if (metadata_buffer != nullptr && metadata_size > 0) {
+        std::memcpy(metadata_buffer, staging_ptr, metadata_size);
+    }
+
+    if (buffer != nullptr && payload_size > 0) {
+        auto payload_slices = split_into_slices(buffer, payload_size);
+        auto transfer_result = client_->TransferFromLocalBuffer(
+            reinterpret_cast<uintptr_t>(staging_ptr) + metadata_size,
+            payload_slices);
+        if (!transfer_result) {
+            return tl::unexpected(transfer_result.error());
+        }
+    }
+
+    return static_cast<int64_t>(payload_size);
+}
+
+int64_t RealClient::get_into_with_metadata(const std::string &key,
+                                           void *buffer, size_t size,
+                                           void *metadata_buffer,
+                                           size_t metadata_size) {
+    return to_py_ret(get_into_with_metadata_internal(
+        key, buffer, size, metadata_buffer, metadata_size));
+}
+
 std::vector<std::vector<std::vector<tl::expected<int64_t, ErrorCode>>>>
 RealClient::get_into_ranges_internal(
     const std::vector<void *> &buffers,

@@ -111,6 +111,63 @@ TEST_F(RealClientTest, BasicPutGetOperations) {
     EXPECT_EQ(exist_result, 1) << "Key should exist";
 }
 
+TEST_F(RealClientTest, GetIntoWithMetadataSplitsPrefix) {
+    ASSERT_TRUE(master_.Start(InProcMasterConfigBuilder().build()))
+        << "Failed to start in-proc master";
+    master_address_ = master_.master_address();
+
+    const std::string rdma_devices = (FLAGS_protocol == std::string("rdma"))
+                                         ? FLAGS_device_name
+                                         : std::string("");
+    ASSERT_EQ(
+        py_client_->setup_real("localhost:17813", "P2PHANDSHAKE",
+                               16 * 1024 * 1024, 16 * 1024 * 1024,
+                               FLAGS_protocol, rdma_devices, master_address_),
+        0);
+
+    const std::string key = "test_key_with_metadata";
+    const std::string metadata = "META";
+    const std::string payload = "payload-bytes-for-split-get";
+    const std::string object = metadata + payload;
+
+    ReplicateConfig config;
+    config.replica_num = 1;
+    std::span<const char> data_span(object.data(), object.size());
+    ASSERT_EQ(py_client_->put(key, data_span, config), 0);
+
+    std::string metadata_only(metadata.size(), '\0');
+    ASSERT_EQ(py_client_->register_buffer(metadata_only.data(),
+                                          metadata_only.size()),
+              0);
+    auto metadata_only_result =
+        py_client_->get_into_with_metadata(key, nullptr, 0,
+                                           metadata_only.data(),
+                                           metadata_only.size());
+    EXPECT_EQ(metadata_only_result,
+              static_cast<int64_t>(payload.size()));
+    EXPECT_EQ(metadata_only, metadata);
+    EXPECT_EQ(py_client_->unregister_buffer(metadata_only.data()), 0);
+
+    std::string metadata_buffer(metadata.size(), '\0');
+    std::string payload_buffer(payload.size(), '\0');
+    ASSERT_EQ(py_client_->register_buffer(metadata_buffer.data(),
+                                          metadata_buffer.size()),
+              0);
+    ASSERT_EQ(py_client_->register_buffer(payload_buffer.data(),
+                                          payload_buffer.size()),
+              0);
+
+    auto split_result = py_client_->get_into_with_metadata(
+        key, payload_buffer.data(), payload_buffer.size(),
+        metadata_buffer.data(), metadata_buffer.size());
+    EXPECT_EQ(split_result, static_cast<int64_t>(payload.size()));
+    EXPECT_EQ(metadata_buffer, metadata);
+    EXPECT_EQ(payload_buffer, payload);
+
+    EXPECT_EQ(py_client_->unregister_buffer(metadata_buffer.data()), 0);
+    EXPECT_EQ(py_client_->unregister_buffer(payload_buffer.data()), 0);
+}
+
 // Test Get Operation will fail if the lease has expired.
 // Set the lease time to 1ms and use large data size to ensure the lease will
 // expire.

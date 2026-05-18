@@ -214,6 +214,24 @@ int64_t mooncake_store_get_into(mooncake_store_t store, const char *key,
     }
 }
 
+int64_t mooncake_store_get_into_with_metadata(mooncake_store_t store,
+                                              const char *key, void *buffer,
+                                              size_t size,
+                                              void *metadata_buffer,
+                                              size_t metadata_size) {
+    if (!store || !key) return -1;
+    if ((!buffer && size > 0) ||
+        (!buffer && !metadata_buffer && metadata_size == 0)) {
+        return -1;
+    }
+    try {
+        return as_client(store)->get_into_with_metadata(
+            key, buffer, size, metadata_buffer, metadata_size);
+    } catch (...) {
+        return -1;
+    }
+}
+
 int mooncake_store_batch_get_into(mooncake_store_t store, const char **keys,
                                   void **buffers, const size_t *sizes,
                                   size_t count, int64_t *results_out) {

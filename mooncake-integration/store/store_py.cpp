@@ -119,6 +119,107 @@ PyTensorInfo extract_tensor_info(const py::object &tensor,
     return info;
 }
 
+bool is_valid_tensor_metadata(const TensorMetadata &metadata) {
+    if (metadata.dtype < 0 ||
+        metadata.dtype >= static_cast<int32_t>(TensorDtype::NR_DTYPES)) {
+        return false;
+    }
+
+    const int kMaxDims = std::size(metadata.shape);
+    if (metadata.ndim < 0 || metadata.ndim > kMaxDims) {
+        return false;
+    }
+
+    for (int i = 0; i < metadata.ndim; ++i) {
+        if (metadata.shape[i] <= 0) {
+            return false;
+        }
+    }
+
+    for (int i = metadata.ndim; i < kMaxDims; ++i) {
+        if (metadata.shape[i] != -1) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+py::object torch_dtype_from_metadata(const TensorMetadata &metadata) {
+    auto torch = torch_module();
+    auto dtype_enum = static_cast<TensorDtype>(metadata.dtype);
+
+    switch (dtype_enum) {
+        case TensorDtype::FLOAT32:
+            return torch.attr("float32");
+        case TensorDtype::FLOAT64:
+            return torch.attr("float64");
+        case TensorDtype::INT8:
+            return torch.attr("int8");
+        case TensorDtype::UINT8:
+            return torch.attr("uint8");
+        case TensorDtype::INT16:
+            return torch.attr("int16");
+        case TensorDtype::UINT16:
+            return torch.attr("uint16");
+        case TensorDtype::INT32:
+            return torch.attr("int32");
+        case TensorDtype::UINT32:
+            return torch.attr("uint32");
+        case TensorDtype::INT64:
+            return torch.attr("int64");
+        case TensorDtype::UINT64:
+            return torch.attr("uint64");
+        case TensorDtype::BOOL:
+            return torch.attr("bool");
+        case TensorDtype::FLOAT16:
+            return torch.attr("float16");
+        case TensorDtype::BFLOAT16:
+            return torch.attr("bfloat16");
+        case TensorDtype::FLOAT8_E4M3:
+            return torch.attr("float8_e4m3fn");
+        case TensorDtype::FLOAT8_E5M2:
+            return torch.attr("float8_e5m2");
+        default:
+            throw std::runtime_error("Unsupported tensor dtype in metadata");
+    }
+}
+
+py::object resolve_target_device(const py::object &device_obj) {
+    auto torch = torch_module();
+    if (!device_obj.is_none()) {
+        return device_obj;
+    }
+
+    bool cuda_available = false;
+    try {
+        cuda_available =
+            torch.attr("cuda").attr("is_available")().cast<bool>();
+    } catch (const std::exception &) {
+        cuda_available = false;
+    }
+
+    return torch.attr("device")(cuda_available ? "cuda" : "cpu");
+}
+
+py::object allocate_tensor_from_metadata(const TensorMetadata &metadata,
+                                        const py::object &device_obj) {
+    if (!is_valid_tensor_metadata(metadata)) {
+        throw std::runtime_error("Invalid tensor metadata");
+    }
+
+    py::tuple shape_tuple(metadata.ndim);
+    for (int i = 0; i < metadata.ndim; ++i) {
+        shape_tuple[i] = py::int_(metadata.shape[i]);
+    }
+
+    auto torch = torch_module();
+    return torch.attr("empty")(shape_tuple,
+                                py::arg("dtype") =
+                                    torch_dtype_from_metadata(metadata),
+                                py::arg("device") = device_obj);
+}
+
 pybind11::object buffer_to_tensor(BufferHandle *buffer_handle, char *usr_buffer,
                                   int64_t data_length) {
     if (!buffer_handle && !usr_buffer) return pybind11::none();
@@ -407,6 +508,131 @@ class MooncakeStorePyWrapper {
         }
 
         return buffer_to_tensor(NULL, buffer, total_length);
+    }
+
+    pybind11::object get_tensor_to_device(const std::string &key,
+                                          py::object device_obj = py::none()) {
+        if (!is_client_initialized()) {
+            LOG(ERROR) << "Client is not initialized";
+            return pybind11::none();
+        }
+
+        if (use_dummy_client_) {
+            LOG(ERROR) << "get_tensor_to_device is not supported for dummy "
+                          "client now";
+            return pybind11::none();
+        }
+
+        auto real_client = std::dynamic_pointer_cast<RealClient>(store_);
+        if (!real_client || !store_->client_buffer_allocator_) {
+            LOG(ERROR) << "Real client or client buffer allocator unavailable";
+            return pybind11::none();
+        }
+
+        int64_t total_length = 0;
+        std::optional<BufferHandle> staging_handle;
+        {
+            py::gil_scoped_release release_gil;
+            total_length = real_client->getSize(key);
+            if (total_length > 0) {
+                staging_handle =
+                    store_->client_buffer_allocator_->allocate(total_length);
+            }
+        }
+
+        if (total_length <= static_cast<int64_t>(sizeof(TensorMetadata))) {
+            LOG(ERROR) << "Invalid tensor size for key: " << key
+                       << ", size=" << total_length;
+            return pybind11::none();
+        }
+
+        if (!staging_handle.has_value()) {
+            LOG(ERROR) << "Failed to allocate staging buffer for key: " << key;
+            return pybind11::none();
+        }
+
+        char *staging_ptr = static_cast<char *>(staging_handle->ptr());
+        int64_t read_result = 0;
+        {
+            py::gil_scoped_release release_gil;
+            read_result = real_client->get_into(key, staging_ptr, total_length);
+        }
+        if (read_result < 0) {
+            LOG(ERROR) << "Failed to read tensor into staging buffer for "
+                       << key << ", error=" << read_result;
+            return pybind11::none();
+        }
+
+        TensorMetadata metadata;
+        std::memcpy(&metadata, staging_ptr, sizeof(TensorMetadata));
+        if (!is_valid_tensor_metadata(metadata)) {
+            LOG(ERROR) << "Invalid tensor metadata for key: " << key;
+            return pybind11::none();
+        }
+
+        py::object target_device = resolve_target_device(device_obj);
+        py::object tensor;
+        try {
+            tensor = allocate_tensor_from_metadata(metadata, target_device);
+        } catch (const std::exception &e) {
+            LOG(ERROR) << "Failed to allocate tensor for key: " << key
+                       << ", error=" << e.what();
+            return pybind11::none();
+        }
+
+        const size_t payload_size =
+            static_cast<size_t>(total_length) - sizeof(TensorMetadata);
+        const size_t tensor_nbytes =
+            tensor.attr("numel")().cast<size_t>() *
+            tensor.attr("element_size")().cast<size_t>();
+        if (tensor_nbytes != payload_size) {
+            LOG(ERROR) << "Tensor size mismatch for key: " << key
+                       << ", expected=" << payload_size
+                       << ", actual=" << tensor_nbytes;
+            return pybind11::none();
+        }
+
+        if (payload_size == 0) {
+            return tensor;
+        }
+
+        uintptr_t tensor_ptr = tensor.attr("data_ptr")().cast<uintptr_t>();
+        int register_result = 0;
+        tl::expected<void, ErrorCode> transfer_result = {};
+        {
+            py::gil_scoped_release release_gil;
+            register_result = real_client->register_buffer(
+                reinterpret_cast<void *>(tensor_ptr), payload_size);
+            if (register_result == 0) {
+                auto payload_slices =
+                    split_into_slices(reinterpret_cast<void *>(tensor_ptr),
+                                      payload_size);
+                transfer_result = real_client->client_->TransferFromLocalBuffer(
+                    reinterpret_cast<uintptr_t>(staging_ptr) +
+                        sizeof(TensorMetadata),
+                    payload_slices);
+                auto unregister_result = real_client->unregister_buffer(
+                    reinterpret_cast<void *>(tensor_ptr));
+                if (unregister_result != 0) {
+                    LOG(WARNING) << "Failed to unregister tensor buffer for "
+                                 << key << ", error=" << unregister_result;
+                }
+            }
+        }
+
+        if (register_result != 0) {
+            LOG(ERROR) << "Failed to register destination tensor buffer for "
+                       << key << ", error=" << register_result;
+            return pybind11::none();
+        }
+
+        if (!transfer_result) {
+            LOG(ERROR) << "Failed to transfer staged tensor payload for "
+                       << key << ", error=" << transfer_result.error();
+            return pybind11::none();
+        }
+
+        return tensor;
     }
 
     pybind11::list batch_get_tensor_into(
@@ -1741,6 +1967,12 @@ PYBIND11_MODULE(store, m) {
              "Tensor Parallel rank.")
         .def("get_tensor", &MooncakeStorePyWrapper::get_tensor, py::arg("key"),
              "Get a PyTorch tensor from the store")
+           .def("get_tensor_to_device",
+               &MooncakeStorePyWrapper::get_tensor_to_device, py::arg("key"),
+               py::arg("device") = py::none(),
+               "Get a PyTorch tensor from the store into the specified device. "
+               "Disk-backed tensors are staged through CPU memory before the "
+               "transfer engine schedules the payload into the target buffer.")
         .def("put_tensor_with_tp", &MooncakeStorePyWrapper::put_tensor_with_tp,
              py::arg("key"), py::arg("tensor"), py::arg("tp_rank") = 0,
              py::arg("tp_size") = 1, py::arg("split_dim") = 0,
@@ -2037,6 +2269,37 @@ PYBIND11_MODULE(store, m) {
             },
             py::arg("key"), py::arg("buffer_ptr"), py::arg("size"),
             "Get object data directly into a pre-allocated buffer")
+        .def(
+            "get_into_with_metadata",
+            [](MooncakeStorePyWrapper &self, const std::string &key,
+               uintptr_t buffer_ptr, size_t size,
+               uintptr_t metadata_buffer_ptr,
+               size_t metadata_size) -> int64_t {
+                if (!self.is_client_initialized()) {
+                    LOG(ERROR) << "Client is not initialized";
+                    return static_cast<int64_t>(
+                        to_py_ret(ErrorCode::INVALID_PARAMS));
+                }
+                auto real_client =
+                    std::dynamic_pointer_cast<RealClient>(self.store_);
+                if (!real_client) {
+                    LOG(ERROR) << "get_into_with_metadata requires a real "
+                                  "client";
+                    return static_cast<int64_t>(
+                        to_py_ret(ErrorCode::INVALID_PARAMS));
+                }
+                void *buffer = reinterpret_cast<void *>(buffer_ptr);
+                void *metadata_buffer =
+                    reinterpret_cast<void *>(metadata_buffer_ptr);
+                py::gil_scoped_release release;
+                return real_client->get_into_with_metadata(
+                    key, buffer, size, metadata_buffer, metadata_size);
+            },
+            py::arg("key"), py::arg("buffer_ptr") = 0, py::arg("size") = 0,
+            py::arg("metadata_buffer_ptr") = 0,
+            py::arg("metadata_size") = 0,
+            "Get object data into a payload buffer while writing the leading "
+            "metadata bytes into a separate metadata buffer.")
         .def(
             "get_into_ranges",
             [](MooncakeStorePyWrapper &self,

@@ -302,6 +302,27 @@ The build and installation steps are as follows:
    sudo make install # optional, make it ready to be used by vLLM/SGLang
    ```
 
+4. Run the local PR CI lane
+  ```bash
+  bash scripts/run_ci_test.sh
+  ```
+
+  To force the full local lane even when `paths-filter` would skip downstream
+  stages:
+
+  ```bash
+  bash scripts/run_ci_test.sh --skip-path-filter
+  ```
+
+  This script mirrors the locally reproducible PR CI checks from GitHub Actions,
+  including `typos`, `clang-format`, the default CMake build, `ctest`, wheel
+  build and installation, and the Python integration tests. It prints a terminal
+  summary with passed, failed, blocked, and unsupported stages, and writes per-
+  stage logs under `local_test/run-ci-logs/<timestamp>/`. Jobs that depend on
+  external platforms or special hardware, such as Ascend, T-one integration,
+  MUSA, Docker image build, and CUDA 13 wheel build, are summarized but not run
+  by default.
+
 For Cambricon MLU builds, configure CMake with `-DUSE_MLU=ON`. For example:
 ```bash
 mkdir build

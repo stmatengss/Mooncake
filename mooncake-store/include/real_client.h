@@ -110,6 +110,22 @@ class RealClient : public PyClient {
      */
     int64_t get_into(const std::string &key, void *buffer, size_t size);
 
+    /**
+     * @brief Get object data into a payload buffer while writing the leading
+     * metadata bytes into a separate metadata buffer.
+     * @param key Key of the object to get
+     * @param buffer Pointer to the payload destination buffer. May be nullptr
+     * when only metadata is requested.
+     * @param size Capacity of the payload destination buffer.
+     * @param metadata_buffer Pointer to the metadata destination buffer. May
+     * be nullptr when metadata is not needed.
+     * @param metadata_size Number of leading bytes to treat as metadata.
+     * @return Number of payload bytes read on success, negative value on error
+     */
+    int64_t get_into_with_metadata(const std::string &key, void *buffer,
+                                   size_t size, void *metadata_buffer,
+                                   size_t metadata_size);
+
     std::vector<std::vector<std::vector<int64_t>>> get_into_ranges(
         const std::vector<void *> &buffers,
         const std::vector<std::vector<std::string>> &all_keys,
@@ -518,6 +534,10 @@ class RealClient : public PyClient {
     tl::expected<int64_t, ErrorCode> get_into_range_internal(
         const std::string &key, void *buffer, size_t dst_offset,
         size_t src_offset, size_t size, bool size_is_buffer_capacity = false);
+
+    tl::expected<int64_t, ErrorCode> get_into_with_metadata_internal(
+        const std::string &key, void *buffer, size_t size,
+        void *metadata_buffer, size_t metadata_size);
 
     std::vector<std::vector<std::vector<tl::expected<int64_t, ErrorCode>>>>
     get_into_ranges_internal(

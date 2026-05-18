@@ -86,6 +86,12 @@ int mooncake_store_batch_put_from(mooncake_store_t store, const char **keys,
 int64_t mooncake_store_get_into(mooncake_store_t store, const char *key,
                                 void *buffer, size_t size);
 
+int64_t mooncake_store_get_into_with_metadata(mooncake_store_t store,
+                                              const char *key, void *buffer,
+                                              size_t size,
+                                              void *metadata_buffer,
+                                              size_t metadata_size);
+
 int mooncake_store_batch_get_into(mooncake_store_t store, const char **keys,
                                   void **buffers, const size_t *sizes,
                                   size_t count, int64_t *results_out);

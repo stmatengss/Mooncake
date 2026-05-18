@@ -108,6 +108,7 @@ python-api-reference/ep-backend
 
 design/architecture
 design/mooncake-store
+design/mooncake-store-maintainability-rfc
 design/p2p-store
 design/transfer-engine/index
 design/tent/overview

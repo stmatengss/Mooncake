@@ -1,0 +1,444 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1777911045940,
+  "projectRoot": "/root/mateng/Mooncake",
+  "techStack": {
+    "languages": [
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "CMakeLists.txt"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "FAST25-release": {
+      "path": "FAST25-release",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1777911045935,
+      "keyFiles": [
+        "Mooncake-FAST25.pdf"
+      ]
+    },
+    "benchmarks": {
+      "path": "benchmarks",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1777911045936,
+      "keyFiles": []
+    },
+    "build": {
+      "path": "build",
+      "purpose": "Build output",
+      "fileCount": 6,
+      "lastAccessed": 1777911045936,
+      "keyFiles": [
+        "CMakeCache.txt",
+        "CTestTestfile.cmake",
+        "Makefile",
+        "cmake_install.cmake",
+        "compile_commands.json"
+      ]
+    },
+    "build_connector_debug": {
+      "path": "build_connector_debug",
+      "purpose": null,
+      "fileCount": 12,
+      "lastAccessed": 1777911045936,
+      "keyFiles": [
+        "apt_msgpack.log",
+        "apt_xxhash.log",
+        "build.log",
+        "config.log",
+        "connector_importer.log"
+      ]
+    },
+    "build_pr1522_py312": {
+      "path": "build_pr1522_py312",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1777911045936,
+      "keyFiles": []
+    },
+    "default.etcd": {
+      "path": "default.etcd",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1777911045937,
+      "keyFiles": []
+    },
+    "docker": {
+      "path": "docker",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1777911045937,
+      "keyFiles": [
+        "mooncake.Dockerfile",
+        "musa.Dockerfile"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 3,
+      "lastAccessed": 1777911045937,
+      "keyFiles": [
+        "Makefile",
+        "README.md",
+        "make.bat"
+      ]
+    },
+    "extern": {
+      "path": "extern",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1777911045937,
+      "keyFiles": []
+    },
+    "image": {
+      "path": "image",
+      "purpose": null,
+      "fileCount": 20,
+      "lastAccessed": 1777911045937,
+      "keyFiles": [
+        "architecture.png",
+        "components.png",
+        "kimi.png",
+        "mooncake-icon.png",
+        "mooncake-store-arch.png"
+      ]
+    },
+    "monitoring": {
+      "path": "monitoring",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "README.md",
+        "docker-compose.yml",
+        "run.sh"
+      ]
+    },
+    "mooncake-asio": {
+      "path": "mooncake-asio",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "asio_impl.cpp"
+      ]
+    },
+    "mooncake-common": {
+      "path": "mooncake-common",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "FindGLOG.cmake",
+        "FindJsonCpp.cmake",
+        "FindMpi.cmake",
+        "SetupPyTorchEnv.cmake"
+      ]
+    },
+    "mooncake-ep": {
+      "path": "mooncake-ep",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "BuildEpExt.cmake",
+        "CMakeLists.txt",
+        "setup.py"
+      ]
+    },
+    "mooncake-integration": {
+      "path": "mooncake-integration",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "allocator.py",
+        "allocator_ascend_npu.py",
+        "integration_utils.h"
+      ]
+    },
+    "mooncake-p2p-store": {
+      "path": "mooncake-p2p-store",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "build.sh"
+      ]
+    },
+    "mooncake-pg": {
+      "path": "mooncake-pg",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "BuildPgExt.cmake",
+        "CMakeLists.txt",
+        "setup.py"
+      ]
+    },
+    "mooncake-rl": {
+      "path": "mooncake-rl",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1777911045938,
+      "keyFiles": []
+    },
+    "mooncake-store": {
+      "path": "mooncake-store",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "CMakeLists.txt"
+      ]
+    },
+    "mooncake-transfer-engine": {
+      "path": "mooncake-transfer-engine",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "CMakeLists.txt"
+      ]
+    },
+    "mooncake-wheel": {
+      "path": "mooncake-wheel",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "pyproject.toml",
+        "setup.py"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 10,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "build_wheel.sh",
+        "code_format.sh",
+        "generate_cluster_topology.py",
+        "run_tests.sh",
+        "test_async_store.py"
+      ]
+    },
+    "thirdparties": {
+      "path": "thirdparties",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1777911045938,
+      "keyFiles": []
+    },
+    "venv": {
+      "path": "venv",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1777911045938,
+      "keyFiles": [
+        "pyvenv.cfg"
+      ]
+    },
+    "docs/build": {
+      "path": "docs/build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1777911045939,
+      "keyFiles": []
+    },
+    "mooncake-ep/src": {
+      "path": "mooncake-ep/src",
+      "purpose": "Source code",
+      "fileCount": 4,
+      "lastAccessed": 1777911045939,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "ep_py.cpp",
+        "mooncake_ep_buffer.cpp"
+      ]
+    },
+    "mooncake-p2p-store/src": {
+      "path": "mooncake-p2p-store/src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1777911045939,
+      "keyFiles": []
+    },
+    "mooncake-pg/src": {
+      "path": "mooncake-pg/src",
+      "purpose": "Source code",
+      "fileCount": 7,
+      "lastAccessed": 1777911045939,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "connection_poller.cpp",
+        "mooncake_backend.cpp"
+      ]
+    },
+    "mooncake-pg/tests": {
+      "path": "mooncake-pg/tests",
+      "purpose": "Test files",
+      "fileCount": 9,
+      "lastAccessed": 1777911045939,
+      "keyFiles": [
+        "README.md",
+        "pg_test_topology.py",
+        "pg_test_utils.py"
+      ]
+    },
+    "mooncake-rl/examples": {
+      "path": "mooncake-rl/examples",
+      "purpose": "Example code",
+      "fileCount": 1,
+      "lastAccessed": 1777911045939,
+      "keyFiles": [
+        "rl_samples.py"
+      ]
+    },
+    "mooncake-store/src": {
+      "path": "mooncake-store/src",
+      "purpose": "Source code",
+      "fileCount": 33,
+      "lastAccessed": 1777911045939,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "aligned_client_buffer.cpp",
+        "allocator.cpp"
+      ]
+    },
+    "mooncake-store/tests": {
+      "path": "mooncake-store/tests",
+      "purpose": "Test files",
+      "fileCount": 38,
+      "lastAccessed": 1777911045940,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "allocation_strategy_test.cpp",
+        "batch_remove_test.cpp"
+      ]
+    },
+    "mooncake-transfer-engine/build": {
+      "path": "mooncake-transfer-engine/build",
+      "purpose": "Build output",
+      "fileCount": 4,
+      "lastAccessed": 1777911045940,
+      "keyFiles": [
+        "CMakeCache.txt",
+        "Makefile",
+        "cmake_install.cmake"
+      ]
+    },
+    "mooncake-transfer-engine/scripts": {
+      "path": "mooncake-transfer-engine/scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1777911045940,
+      "keyFiles": [
+        "mount.py",
+        "register.py"
+      ]
+    },
+    "mooncake-transfer-engine/src": {
+      "path": "mooncake-transfer-engine/src",
+      "purpose": "Source code",
+      "fileCount": 11,
+      "lastAccessed": 1777911045940,
+      "keyFiles": [
+        "CMakeLists.txt",
+        "config.cpp",
+        "memory_location.cpp"
+      ]
+    },
+    "mooncake-wheel/build": {
+      "path": "mooncake-wheel/build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1777911045940,
+      "keyFiles": []
+    },
+    "mooncake-wheel/dist": {
+      "path": "mooncake-wheel/dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 1,
+      "lastAccessed": 1777911045940,
+      "keyFiles": [
+        "mooncake_transfer_engine-0.3.8-cp312-cp312-manylinux_2_17_x86_64.whl"
+      ]
+    },
+    "mooncake-wheel/tests": {
+      "path": "mooncake-wheel/tests",
+      "purpose": "Test files",
+      "fileCount": 24,
+      "lastAccessed": 1777911045940,
+      "keyFiles": [
+        "ep_test_utils.py",
+        "test_cli.py",
+        "test_distributed_object_store.py"
+      ]
+    },
+    "venv/bin": {
+      "path": "venv/bin",
+      "purpose": "Executable scripts",
+      "fileCount": 42,
+      "lastAccessed": 1777911045940,
+      "keyFiles": [
+        "Activate.ps1",
+        "activate",
+        "activate.csh"
+      ]
+    },
+    "venv/lib": {
+      "path": "venv/lib",
+      "purpose": "Library code",
+      "fileCount": 0,
+      "lastAccessed": 1777911045940,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

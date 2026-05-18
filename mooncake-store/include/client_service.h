@@ -403,6 +403,17 @@ class Client {
         const std::unordered_map<std::string, Slice>& batch_slices);
 
     /**
+     * @brief Transfer data from a local registered buffer into destination
+     * slices using the transfer engine.
+     * @param source_address Base address of the local source buffer.
+     * @param destination_slices Destination slices. Each slice must point to a
+     * registered writable buffer.
+     */
+    tl::expected<void, ErrorCode> TransferFromLocalBuffer(
+        uintptr_t source_address,
+        const std::vector<Slice>& destination_slices);
+
+    /**
      * @brief Notifies the master that offloading of specified objects has
      * succeeded.
      * @param keys         A list of object keys (names) that were successfully

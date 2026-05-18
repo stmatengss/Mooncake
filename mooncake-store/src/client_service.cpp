@@ -2285,6 +2285,76 @@ tl::expected<void, ErrorCode> Client::BatchGetOffloadObject(
     return {};
 }
 
+tl::expected<void, ErrorCode> Client::TransferFromLocalBuffer(
+    uintptr_t source_address, const std::vector<Slice>& destination_slices) {
+    if (!transfer_engine_) {
+        LOG(ERROR) << "Transfer engine is not initialized";
+        return tl::make_unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    if (destination_slices.empty()) {
+        return {};
+    }
+
+    auto endpoint = GetTransportEndpoint();
+    if (endpoint.empty()) {
+        LOG(ERROR) << "Local transfer endpoint is empty";
+        return tl::make_unexpected(ErrorCode::TRANSFER_FAIL);
+    }
+
+    SegmentHandle seg = transfer_engine_->openSegment(endpoint);
+    if (seg == static_cast<uint64_t>(ERR_INVALID_ARGUMENT)) {
+        LOG(ERROR) << "Failed to open local segment: " << endpoint;
+        return tl::make_unexpected(ErrorCode::TRANSFER_FAIL);
+    }
+
+    std::vector<TransferRequest> requests;
+    requests.reserve(destination_slices.size());
+    uint64_t offset = 0;
+    for (const auto& slice : destination_slices) {
+        if (slice.ptr != nullptr && slice.size > 0) {
+            TransferRequest request;
+            request.opcode = TransferRequest::READ;
+            request.source = static_cast<char*>(slice.ptr);
+            request.target_id = seg;
+            request.target_offset = source_address + offset;
+            request.length = slice.size;
+            requests.emplace_back(request);
+        }
+        offset += slice.size;
+    }
+
+    if (requests.empty()) {
+        return {};
+    }
+
+    BatchID batch_id = transfer_engine_->allocateBatchID(requests.size());
+    if (batch_id == INVALID_BATCH_ID) {
+        LOG(ERROR) << "Failed to allocate batch ID for local buffer transfer";
+        return tl::make_unexpected(ErrorCode::TRANSFER_FAIL);
+    }
+
+    Status submit_status = transfer_engine_->submitTransfer(batch_id, requests);
+    if (!submit_status.ok()) {
+        LOG(ERROR) << "Failed to submit local buffer transfer, error code is "
+                   << submit_status.code();
+        transfer_engine_->freeBatchID(batch_id);
+        return tl::make_unexpected(ErrorCode::TRANSFER_FAIL);
+    }
+
+    TransferEngineOperationState state(*transfer_engine_, batch_id,
+                                       requests.size());
+    state.wait_for_completion();
+    auto result = state.get_result();
+    if (result != ErrorCode::OK) {
+        LOG(ERROR) << "Local buffer transfer failed, error code is "
+                   << static_cast<int>(result);
+        return tl::make_unexpected(result);
+    }
+
+    return {};
+}
+
 tl::expected<void, ErrorCode> Client::NotifyOffloadSuccess(
     const std::vector<std::string>& keys,
     const std::vector<StorageObjectMetadata>& metadatas) {
