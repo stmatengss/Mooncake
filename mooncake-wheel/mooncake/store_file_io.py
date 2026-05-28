@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import posixpath
@@ -13,6 +14,8 @@ LOGGER = logging.getLogger(__name__)
 INVALID_PARAMS = -600
 FILE_NOT_FOUND = -1100
 PERSISTENT_FAIL = -1503
+
+_SUPPORTED_KINDS = {"kv_cache", "rl_checkpoint", "model_weights"}
 
 
 def _normalize_format(format_name: str, file_name: str) -> str:
@@ -68,6 +71,10 @@ def _open_fs_target(
     return fs, path
 
 
+def _is_dir_like(path: str) -> bool:
+    return path.endswith("/") or not path.lower().endswith(".safetensors")
+
+
 def _write_bytes(
     file_name: os.PathLike[str] | str,
     payload: bytes,
@@ -86,6 +93,20 @@ def _write_bytes(
         handle.write(payload)
 
 
+def _write_json(
+    file_name: os.PathLike[str] | str,
+    data: dict[str, Any],
+    filesystem: str | None,
+    storage_options: dict[str, Any] | None,
+) -> None:
+    _write_bytes(
+        file_name,
+        json.dumps(data, ensure_ascii=True, sort_keys=True).encode("utf-8"),
+        filesystem,
+        storage_options,
+    )
+
+
 def _read_bytes(
     file_name: os.PathLike[str] | str,
     filesystem: str | None,
@@ -94,6 +115,178 @@ def _read_bytes(
     fs, path = _open_fs_target(file_name, filesystem, storage_options)
     with fs.open(path, "rb") as handle:
         return handle.read()
+
+
+def _serialize_obj(obj: Any, format_name: str, fallback_tensor_name: str) -> bytes:
+    if format_name == "safetensors":
+        from safetensors.torch import save as safetensors_save
+
+        if isinstance(obj, dict):
+            if not obj:
+                raise ValueError("Cannot serialize an empty dict with safetensors")
+            return safetensors_save(obj)
+
+        return safetensors_save({fallback_tensor_name: obj})
+
+    import torch
+
+    buffer = io.BytesIO()
+    torch.save(obj, buffer)
+    return buffer.getvalue()
+
+
+def _deserialize_obj(
+    payload: bytes,
+    format_name: str,
+    tensor_name: str | None,
+    fallback_name: str | None,
+    map_location: Any,
+) -> Any:
+    if format_name == "safetensors":
+        from safetensors.torch import load as safetensors_load
+
+        loaded_tensors = safetensors_load(payload)
+        if tensor_name is None and fallback_name is None:
+            return loaded_tensors
+        return _pick_tensor_entry(loaded_tensors, tensor_name, fallback_name)
+
+    import torch
+
+    return torch.load(io.BytesIO(payload), map_location=map_location)
+
+
+def _build_artifact_file_path(
+    save_path: str,
+    rank: int,
+    tp_size: int,
+    format_name: str,
+) -> str:
+    if tp_size <= 1 and save_path.lower().endswith(".safetensors"):
+        return save_path
+
+    base = save_path if save_path.endswith("/") else f"{save_path}/"
+    if format_name == "safetensors":
+        return f"{base}rank_{rank:05d}.safetensors"
+    return f"{base}rank_{rank:05d}.pt"
+
+
+def _validate_kind(kind: str) -> None:
+    if kind not in _SUPPORTED_KINDS:
+        raise ValueError(f"Unsupported artifact kind: {kind}")
+
+
+def _save_artifact(
+    self,
+    kind: str,
+    name: str,
+    obj: Any,
+    save_path: os.PathLike[str] | str,
+    *,
+    format: str = "auto",
+    filesystem: str = "auto",
+    storage_options: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    tp_rank: int | None = None,
+    tp_size: int = 1,
+    use_p2p: str = "auto",
+) -> dict[str, Any] | None:
+    del use_p2p
+    try:
+        _validate_kind(kind)
+        if not name:
+            raise ValueError("name must not be empty")
+
+        target_path = os.fspath(save_path)
+        if not target_path:
+            raise ValueError("save_path must not be empty")
+        if tp_size < 1:
+            raise ValueError("tp_size must be >= 1")
+
+        rank = 0 if tp_rank is None else int(tp_rank)
+        if rank < 0 or rank >= tp_size:
+            raise ValueError("tp_rank must satisfy 0 <= tp_rank < tp_size")
+
+        format_name = _normalize_format(format, target_path)
+        artifact_file = _build_artifact_file_path(
+            target_path, rank, tp_size, format_name
+        )
+        payload = _serialize_obj(obj, format_name, name)
+        _write_bytes(artifact_file, payload, filesystem, storage_options)
+
+        result = {
+            "kind": kind,
+            "name": name,
+            "save_path": target_path,
+            "artifact_file": artifact_file,
+            "format": format_name,
+            "tp_rank": rank,
+            "tp_size": tp_size,
+            "status": "ok",
+        }
+        if metadata:
+            result["metadata"] = metadata
+
+        if _is_dir_like(target_path) and tp_size > 1:
+            manifest_path = posixpath.join(target_path.rstrip("/"), "manifest.json")
+            _write_json(
+                manifest_path,
+                {
+                    "kind": kind,
+                    "name": name,
+                    "format": format_name,
+                    "tp_size": tp_size,
+                    "metadata": metadata or {},
+                },
+                filesystem,
+                storage_options,
+            )
+            result["manifest_path"] = manifest_path
+
+        return result
+    except Exception:
+        LOGGER.exception("Failed to save artifact kind=%s name=%s", kind, name)
+        return None
+
+
+def _load_artifact(
+    self,
+    kind: str,
+    name: str,
+    load_path: os.PathLike[str] | str,
+    *,
+    format: str = "auto",
+    filesystem: str = "auto",
+    storage_options: dict[str, Any] | None = None,
+    map_location: Any = "cpu",
+    tp_rank: int | None = None,
+    tp_size: int = 1,
+    use_p2p: str = "auto",
+):
+    del use_p2p
+    try:
+        _validate_kind(kind)
+        if not name:
+            raise ValueError("name must not be empty")
+
+        target_path = os.fspath(load_path)
+        if not target_path:
+            raise ValueError("load_path must not be empty")
+        if tp_size < 1:
+            raise ValueError("tp_size must be >= 1")
+
+        rank = 0 if tp_rank is None else int(tp_rank)
+        if rank < 0 or rank >= tp_size:
+            raise ValueError("tp_rank must satisfy 0 <= tp_rank < tp_size")
+
+        format_name = _normalize_format(format, target_path)
+        artifact_file = _build_artifact_file_path(
+            target_path, rank, tp_size, format_name
+        )
+        payload = _read_bytes(artifact_file, filesystem, storage_options)
+        return _deserialize_obj(payload, format_name, None, None, map_location)
+    except Exception:
+        LOGGER.exception("Failed to load artifact kind=%s name=%s", kind, name)
+        return None
 
 
 def _serialize_tensor(tensor: Any, format_name: str, tensor_name: str) -> bytes:
@@ -271,6 +464,9 @@ def patch_store_file_io_support() -> None:
 
     if getattr(store_cls, "_mooncake_file_io_patched", False):
         return
+
+    store_cls.save_artifact = _save_artifact
+    store_cls.load_artifact = _load_artifact
 
     store_cls.save_tensor_to_file = _save_tensor_to_file
     store_cls.load_tensor_from_file = _load_tensor_from_file
