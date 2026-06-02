@@ -466,8 +466,8 @@ auto MasterService::MountSegment(const Segment& segment, const UUID& client_id)
         }
     }
 
-    LOG(INFO) << "client_id=" << client_id
-              << ", action=mount_segment, segment_name=" << segment.name;
+    VLOG(1) << "client_id=" << client_id
+            << ", action=mount_segment, segment_name=" << segment.name;
 
     auto err = segment_access.MountSegment(segment, client_id);
     if (err == ErrorCode::SEGMENT_ALREADY_EXISTS) {
@@ -490,8 +490,8 @@ auto MasterService::MountNoFSegment(const NoFSegment& segment,
     ScopedNoFSegmentAccess nof_segment_access =
         nof_segment_manager_.getNoFSegmentAccess();
 
-    LOG(INFO) << "NoF segment mount: " << "client_id=" << client_id
-              << ", action=mount_segment, segment_name=" << segment.name;
+    VLOG(1) << "NoF segment mount: " << "client_id=" << client_id
+            << ", action=mount_segment, segment_name=" << segment.name;
 
     auto err = nof_segment_access.MountSegment(segment, client_id);
     if (err == ErrorCode::SEGMENT_ALREADY_EXISTS) {
@@ -1345,7 +1345,7 @@ auto MasterService::PutStart(const UUID& client_id, const std::string& key,
             shard->processing_keys.erase(key);
             shard->metadata.erase(it);
         } else {
-            LOG(INFO) << "key=" << key << ", info=object_already_exists";
+            VLOG(1) << "key=" << key << ", info=object_already_exists";
             return tl::make_unexpected(ErrorCode::OBJECT_ALREADY_EXISTS);
         }
     }
@@ -1478,7 +1478,7 @@ auto MasterService::PutRevoke(const UUID& client_id, const std::string& key,
     std::shared_lock<std::shared_mutex> shared_lock(snapshot_mutex_);
     MetadataAccessorRW accessor(this, key);
     if (!accessor.Exists()) {
-        LOG(INFO) << "key=" << key << ", info=object_not_found";
+        VLOG(1) << "key=" << key << ", info=object_not_found";
         return tl::make_unexpected(ErrorCode::OBJECT_NOT_FOUND);
     }
 
@@ -1637,13 +1637,13 @@ auto MasterService::UpsertStart(const UUID& client_id, const std::string& key,
         // Reject if a Copy/Move task is actively reading this key's replicas.
         // Writing during replication would corrupt the copy.
         if (shard->replication_tasks.count(key) > 0) {
-            LOG(INFO) << "key=" << key << ", error=object_has_replication_task";
+            VLOG(1) << "key=" << key << ", error=object_has_replication_task";
             return tl::make_unexpected(ErrorCode::OBJECT_HAS_REPLICATION_TASK);
         }
 
         // Reject if an offload-to-disk task is in progress (same reason).
         if (shard->offloading_tasks.count(key) > 0) {
-            LOG(INFO) << "key=" << key << ", error=object_has_offloading_task";
+            VLOG(1) << "key=" << key << ", error=object_has_offloading_task";
             return tl::make_unexpected(ErrorCode::OBJECT_HAS_REPLICATION_TASK);
         }
 
@@ -1688,7 +1688,7 @@ auto MasterService::UpsertStart(const UUID& client_id, const std::string& key,
     // buffer that an RDMA read is streaming from would cause data corruption.
     // The client should retry after readers finish.
     if (metadata.HasReplica(&Replica::fn_is_busy)) {
-        LOG(INFO) << "key=" << key << ", error=object_replica_busy";
+        VLOG(1) << "key=" << key << ", error=object_replica_busy";
         return tl::make_unexpected(ErrorCode::OBJECT_REPLICA_BUSY);
     }
 
@@ -1810,7 +1810,7 @@ auto MasterService::EvictDiskReplica(const UUID& client_id,
     -> tl::expected<void, ErrorCode> {
     MetadataAccessorRW accessor(this, key);
     if (!accessor.Exists()) {
-        LOG(INFO) << "key=" << key << ", info=object_not_found_for_eviction";
+        VLOG(1) << "key=" << key << ", info=object_not_found_for_eviction";
         return tl::make_unexpected(ErrorCode::OBJECT_NOT_FOUND);
     }
 
@@ -2578,9 +2578,8 @@ auto MasterService::Ping(const UUID& client_id)
 
 tl::expected<std::string, ErrorCode> MasterService::GetFsdir() const {
     if (root_fs_dir_.empty() || cluster_id_.empty()) {
-        LOG(INFO)
-            << "Storage root directory or cluster ID is not set. persisting "
-               "data is disabled.";
+        VLOG(1) << "Storage root directory or cluster ID is not set. persisting "
+                << "data is disabled.";
         return std::string();
     }
     return root_fs_dir_ + "/" + cluster_id_;
@@ -2589,9 +2588,8 @@ tl::expected<std::string, ErrorCode> MasterService::GetFsdir() const {
 tl::expected<GetStorageConfigResponse, ErrorCode>
 MasterService::GetStorageConfig() const {
     if (root_fs_dir_.empty() || cluster_id_.empty()) {
-        LOG(INFO)
-            << "Storage root directory or cluster ID is not set. persisting "
-               "data is disabled.";
+        VLOG(1) << "Storage root directory or cluster ID is not set. persisting "
+                << "data is disabled.";
         return GetStorageConfigResponse("", enable_disk_eviction_,
                                         quota_bytes_);
     }
@@ -3185,10 +3183,10 @@ void MasterService::EvictionThreadFunc() {
             MasterMetricManager::instance().get_global_mem_used_ratio();
         if (used_ratio > eviction_high_watermark_ratio_ ||
             (need_mem_eviction_ && eviction_ratio_ > 0.0)) {
-            LOG(INFO) << "[EVICT-TRIGGER] memory_ratio=" << used_ratio
-                      << " high_watermark=" << eviction_high_watermark_ratio_
-                      << " need_mem_eviction=" << need_mem_eviction_
-                      << " eviction_ratio=" << eviction_ratio_;
+            VLOG(1) << "[EVICT-TRIGGER] memory_ratio=" << used_ratio
+                    << " high_watermark=" << eviction_high_watermark_ratio_
+                    << " need_mem_eviction=" << need_mem_eviction_
+                    << " eviction_ratio=" << eviction_ratio_;
             double evict_ratio_target = std::max(
                 eviction_ratio_,
                 used_ratio - eviction_high_watermark_ratio_ + eviction_ratio_);
@@ -3196,7 +3194,7 @@ void MasterService::EvictionThreadFunc() {
                 std::max(evict_ratio_target * 0.5,
                          used_ratio - eviction_high_watermark_ratio_);
             BatchEvict(evict_ratio_target, evict_ratio_lowerbound);
-            LOG(INFO) << "[EVICT-DONE] BatchEvict execution completed.";
+            VLOG(1) << "[EVICT-DONE] BatchEvict execution completed.";
             last_discard_time = now;
         } else if (now - last_discard_time > put_start_release_timeout_sec_) {
             // Try discarding expired processing keys and ongoing replication
@@ -4948,8 +4946,8 @@ void MasterService::ClientMonitorFunc() {
         std::vector<UUID> expired_clients;
         for (auto it = client_ttl.begin(); it != client_ttl.end();) {
             if (it->second < now) {
-                LOG(INFO) << "client_id=" << it->first
-                          << ", action=client_expired";
+                VLOG(1) << "client_id=" << it->first
+                        << ", action=client_expired";
                 expired_clients.push_back(it->first);
                 it = client_ttl.erase(it);
             } else {
@@ -5024,9 +5022,9 @@ void MasterService::ClientMonitorFunc() {
                 for (size_t i = 0; i < unmount_segments.size(); i++) {
                     segment_access.CommitUnmountSegment(
                         unmount_segments[i], client_ids[i], dec_capacities[i]);
-                    LOG(INFO) << "client_id=" << client_ids[i]
-                              << ", segment_name=" << segment_names[i]
-                              << ", action=unmount_expired_mem_segment";
+                    VLOG(1) << "client_id=" << client_ids[i]
+                            << ", segment_name=" << segment_names[i]
+                            << ", action=unmount_expired_mem_segment";
                 }
                 for (auto& client_id : expired_clients) {
                     segment_access.UnmountLocalDiskSegment(client_id);
