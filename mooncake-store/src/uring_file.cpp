@@ -603,8 +603,8 @@ tl::expected<size_t, ErrorCode> UringFile::vector_write(const iovec* iov,
                   std::chrono::steady_clock::now() - start)
                   .count();
     if (us > 1000)
-        LOG(INFO) << "[UringFile::vector_write] fd=" << fd_
-                  << " iovcnt=" << iovcnt << " time=" << us << "us";
+        VLOG(1) << "[UringFile::vector_write] fd=" << fd_
+                << " iovcnt=" << iovcnt << " time=" << us << "us";
     return res;
 }
 
@@ -628,10 +628,10 @@ tl::expected<size_t, ErrorCode> UringFile::vector_read(const iovec* iov,
                           ? (static_cast<double>(expected_bytes) / 1048576.0) /
                                 (static_cast<double>(us) / 1e6)
                           : 0;
-        LOG(INFO) << "[UringFile::vector_read] fd=" << fd_
-                  << " iovcnt=" << iovcnt << " bytes=" << expected_bytes
-                  << " time=" << us << "us (" << (us / 1000.0) << "ms)"
-                  << " throughput=" << mbps << "MB/s";
+        VLOG(1) << "[UringFile::vector_read] fd=" << fd_
+                << " iovcnt=" << iovcnt << " bytes=" << expected_bytes
+                << " time=" << us << "us (" << (us / 1000.0) << "ms)"
+                << " throughput=" << mbps << "MB/s";
     }
 
     if (!res) {
@@ -721,8 +721,8 @@ bool UringFile::register_buffer(void* buffer, size_t length) {
     g_buf.size.store(length, std::memory_order_release);
     // Register on the calling thread's ring immediately.
     bool ok = SharedUringRing::instance().ensure_buf_registered();
-    LOG(INFO) << "[UringFile::register_buffer] addr=" << buffer
-              << " size=" << length << " calling-thread-registered=" << ok;
+    VLOG(1) << "[UringFile::register_buffer] addr=" << buffer
+            << " size=" << length << " calling-thread-registered=" << ok;
     return ok;
 }
 
