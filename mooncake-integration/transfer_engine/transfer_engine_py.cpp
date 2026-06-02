@@ -14,6 +14,8 @@
 
 #include "transfer_engine_py.h"
 
+#include "mooncake_log.h"
+
 #include <cassert>
 #include <numeric>
 #include <fstream>
@@ -1034,6 +1036,8 @@ void bind_coro_rpc_interface(py::module_& m) {
 }
 
 PYBIND11_MODULE(engine, m) {
+    mooncake::InitMooncakeLogging("mooncake-transfer-engine");
+
     py::enum_<TransferEnginePy::TransferOpcode> transfer_opcode(
         m, "TransferOpcode", py::arithmetic());
     transfer_opcode.value("Read", TransferEnginePy::TransferOpcode::READ)
