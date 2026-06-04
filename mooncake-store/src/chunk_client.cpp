@@ -17,7 +17,7 @@ int64_t ChunkClient::put_chunk_from(const ChunkDescriptor& desc,
     auto r =
         registry_->RegisterChunk(desc, kv_data, kv_size, meta_data, meta_size);
     if (!r.has_value()) {
-        // ErrorCode values are already negative (see types.h §254).
+        // All ErrorCode enumerators are negative (see ErrorCode in types.h).
         return static_cast<int64_t>(r.error());
     }
     return static_cast<int64_t>(kv_size);
@@ -37,8 +37,16 @@ int64_t ChunkClient::get_chunk_into(uint64_t content_hash, void* kv_data,
         return static_cast<int64_t>(ErrorCode::INVALID_PARAMS);
     }
     std::memcpy(kv_data, r->kv_data, r->kv_size);
-    if (meta_data != nullptr && meta_size >= r->meta_size && r->meta_size > 0) {
-        std::memcpy(meta_data, r->meta_data, r->meta_size);
+    if (r->meta_size > 0) {
+        // Caller must supply a buffer large enough for the stored metadata.
+        // If they didn't ask for metadata at all, meta_data == nullptr is OK.
+        if (meta_data != nullptr && meta_size < r->meta_size) {
+            registry_->DecRef(content_hash);
+            return static_cast<int64_t>(ErrorCode::INVALID_PARAMS);
+        }
+        if (meta_data != nullptr) {
+            std::memcpy(meta_data, r->meta_data, r->meta_size);
+        }
     }
     if (out_desc != nullptr) {
         *out_desc = r->descriptor;

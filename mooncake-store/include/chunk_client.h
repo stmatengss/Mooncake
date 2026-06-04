@@ -36,9 +36,11 @@ class ChunkClient {
     /// @param out_desc If non-null, populated with the stored descriptor on
     ///                 success. Caller MUST validate rope_theta_id matches
     ///                 the active inference model before using the KV.
-    /// @return bytes copied on success, negative ErrorCode on failure.
+    /// @return bytes copied (kv only) on success, negative ErrorCode on failure.
     ///         Returns ErrorCode::INVALID_PARAMS if kv_size is smaller than
-    ///         the stored blob.
+    ///         the stored blob, OR if meta_data is non-null but meta_size is
+    ///         smaller than the stored metadata. Pass meta_data == nullptr to
+    ///         skip metadata retrieval entirely.
     int64_t get_chunk_into(uint64_t content_hash, void* kv_data, size_t kv_size,
                            void* meta_data, size_t meta_size,
                            ChunkDescriptor* out_desc);

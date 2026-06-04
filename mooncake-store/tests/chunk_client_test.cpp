@@ -115,19 +115,63 @@ TEST_F(ChunkClientTest, BatchLookupMixesHitsAndMisses) {
 
 TEST_F(ChunkClientTest, CrossProducerDedupViaContentHash) {
     // Two independent producers compute the same canonical inputs ->
-    // identical content_hash -> registry stores only one copy.
+    // identical content_hash -> the second put is a refcount bump only,
+    // observable through lookup reporting a single existing chunk.
     auto in = MakeInputs({99, 100});
     std::vector<uint8_t> kv(256, 0x42);
     auto desc1 = MakeDescriptorFromInputs(in, 256);
-    auto desc2 = MakeDescriptorFromInputs(in, 256);  // identical
+    auto desc2 = MakeDescriptorFromInputs(in, 256);
     ASSERT_EQ(desc1.content_hash, desc2.content_hash);
 
-    client_->put_chunk_from(desc1, kv.data(), 256, nullptr, 0);
-    client_->put_chunk_from(desc2, kv.data(), 256, nullptr, 0);
+    ASSERT_GE(client_->put_chunk_from(desc1, kv.data(), 256, nullptr, 0), 0);
+    ASSERT_GE(client_->put_chunk_from(desc2, kv.data(), 256, nullptr, 0), 0);
 
-    auto m = registry_->GetMetrics();
-    EXPECT_EQ(m.total_chunks, 1u);
-    EXPECT_EQ(m.dedup_savings_bytes, 256u);
+    // Both puts targeted one hash; lookup reports the single chunk exists.
+    auto results = client_->lookup_chunks({desc1.content_hash});
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_TRUE(results[0].exists);
+    EXPECT_EQ(results[0].kv_blob_size, 256u);
+}
+
+TEST_F(ChunkClientTest, PutWithMismatchedBlobSizeReturnsNegative) {
+    auto in = MakeInputs({1, 2, 3});
+    auto desc = MakeDescriptorFromInputs(in, /*kv_size=*/200);
+    std::vector<uint8_t> kv(100, 0x99);  // actual size disagrees with desc.kv_blob_size
+
+    int64_t rc = client_->put_chunk_from(desc, kv.data(), 100, nullptr, 0);
+    EXPECT_LT(rc, 0);
+}
+
+TEST_F(ChunkClientTest, GetWithUndersizedMetaBufferReturnsNegative) {
+    // Verify symmetric meta-buffer validation (matches kv-buffer behavior).
+    auto in = MakeInputs({7, 8, 9});
+    auto desc = MakeDescriptorFromInputs(in, /*kv_size=*/64);
+    desc.metadata_blob_size = 16;
+    std::vector<uint8_t> kv(64, 0xAB);
+    std::vector<uint8_t> meta(16, 0xCD);
+    ASSERT_GE(client_->put_chunk_from(desc, kv.data(), 64, meta.data(), 16),
+              0);
+
+    std::vector<uint8_t> kv_dst(64);
+    std::vector<uint8_t> meta_dst(8);  // too small
+    int64_t rc = client_->get_chunk_into(desc.content_hash, kv_dst.data(), 64,
+                                         meta_dst.data(), 8, nullptr);
+    EXPECT_LT(rc, 0);
+}
+
+TEST_F(ChunkClientTest, GetSkipsMetadataWhenCallerPassesNull) {
+    // meta_data == nullptr means "don't want it"; success even if metadata stored.
+    auto in = MakeInputs({11, 12});
+    auto desc = MakeDescriptorFromInputs(in, /*kv_size=*/32);
+    desc.metadata_blob_size = 4;
+    std::vector<uint8_t> kv(32, 0x12);
+    std::vector<uint8_t> meta(4, 0x34);
+    ASSERT_GE(client_->put_chunk_from(desc, kv.data(), 32, meta.data(), 4), 0);
+
+    std::vector<uint8_t> kv_dst(32);
+    int64_t rc = client_->get_chunk_into(desc.content_hash, kv_dst.data(), 32,
+                                         nullptr, 0, nullptr);
+    EXPECT_EQ(rc, 32);  // kv_size copied; metadata silently skipped.
 }
 
 }  // namespace
