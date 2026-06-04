@@ -123,24 +123,31 @@ int ChunkRegistry::GetRefCount(uint64_t content_hash) const {
 EvictionStats ChunkRegistry::RunEviction(size_t target_bytes) {
     EvictionStats stats{};
     std::lock_guard<std::mutex> lock(mu_);
-    while (metrics_.total_bytes > target_bytes && !lru_list_.empty()) {
-        uint64_t victim_hash = lru_list_.back();
-        auto it = entries_.find(victim_hash);
-        if (it == entries_.end()) {
-            lru_list_.pop_back();
+    if (lru_list_.empty()) return stats;
+    // Walk LRU list from oldest (back) toward newest (front). Skip pinned
+    // entries (ref_count > 0) instead of aborting, so an unpinned entry in
+    // the middle of the LRU can still be evicted when the tail is pinned.
+    auto it = lru_list_.end();
+    while (metrics_.total_bytes > target_bytes) {
+        if (it == lru_list_.begin()) break;
+        --it;
+        auto entry_it = entries_.find(*it);
+        if (entry_it == entries_.end()) {
+            // Stale list node; remove and keep walking toward front.
+            it = lru_list_.erase(it);
             continue;
         }
-        if (it->second->ref_count > 0) {
-            // Cannot evict pinned entry; abort eviction pass.
-            break;
+        if (entry_it->second->ref_count > 0) {
+            // Pinned; skip without removing.
+            continue;
         }
         size_t freed =
-            it->second->kv_data.size() + it->second->meta_data.size();
-        lru_list_.pop_back();
+            entry_it->second->kv_data.size() + entry_it->second->meta_data.size();
+        it = lru_list_.erase(it);
         metrics_.total_chunks -= 1;
         metrics_.total_bytes -= freed;
         metrics_.evictions += 1;
-        entries_.erase(it);
+        entries_.erase(entry_it);
         stats.evicted_chunks += 1;
         stats.freed_bytes += freed;
     }
@@ -159,21 +166,31 @@ void ChunkRegistry::TouchLocked(Entry& e) {
 }
 
 void ChunkRegistry::EvictWhileOverCapacityLocked() {
-    while (metrics_.total_bytes > capacity_bytes_ && !lru_list_.empty()) {
-        uint64_t victim_hash = lru_list_.back();
-        auto it = entries_.find(victim_hash);
-        if (it == entries_.end()) {
-            lru_list_.pop_back();
+    if (lru_list_.empty()) return;
+    // Walk LRU list from oldest (back) toward newest (front). Skip pinned
+    // entries (ref_count > 0) instead of aborting, so an unpinned entry in
+    // the middle of the LRU can still be evicted when the tail is pinned.
+    auto it = lru_list_.end();
+    while (metrics_.total_bytes > capacity_bytes_) {
+        if (it == lru_list_.begin()) break;
+        --it;
+        auto entry_it = entries_.find(*it);
+        if (entry_it == entries_.end()) {
+            // Stale list node; remove and keep walking toward front.
+            it = lru_list_.erase(it);
             continue;
         }
-        if (it->second->ref_count > 0) break;
+        if (entry_it->second->ref_count > 0) {
+            // Pinned; skip without removing.
+            continue;
+        }
         size_t freed =
-            it->second->kv_data.size() + it->second->meta_data.size();
-        lru_list_.pop_back();
+            entry_it->second->kv_data.size() + entry_it->second->meta_data.size();
+        it = lru_list_.erase(it);
         metrics_.total_chunks -= 1;
         metrics_.total_bytes -= freed;
         metrics_.evictions += 1;
-        entries_.erase(it);
+        entries_.erase(entry_it);
     }
 }
 
