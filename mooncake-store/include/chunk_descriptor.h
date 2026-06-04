@@ -1,6 +1,7 @@
 // Copyright (c) Mooncake Project
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -8,17 +9,17 @@ namespace mooncake {
 
 /// On-wire layout for the KV blob inside a chunk.
 enum class KVLayout : uint16_t {
-    kPageFirst = 0,
-    kLayerFirst = 1,
-    kPageFirstDirect = 2,
+    PAGE_FIRST = 0,
+    LAYER_FIRST = 1,
+    PAGE_FIRST_DIRECT = 2,
 };
 
 /// Numeric dtype of stored K and V tensors.
 enum class KVDtype : uint16_t {
-    kBF16 = 0,
-    kFP16 = 1,
-    kFP8E4M3 = 2,
-    kFP8E5M2 = 3,
+    BF16 = 0,
+    FP16 = 1,
+    FP8_E4M3 = 2,
+    FP8_E5M2 = 3,
 };
 
 /// Self-describing header for one KV chunk stored in ChunkRegistry.
@@ -50,12 +51,14 @@ struct ChunkDescriptor {
 
     // ---- Position-independent fields ----
     bool stored_pre_rope;           // true = NoPE; false = post-RoPE 32 / 1
-    uint8_t _pad0[3];               //                              33 / 3
+    uint8_t pad0_[3];               //                              33 / 3
     uint32_t rope_theta_id;         // FNV-1a(theta_base, dim, max_pos) 36 / 4
     uint64_t source_position;       // valid iff stored_pre_rope==false 40 / 8
 
     // ---- Selective-recompute metadata (optional) ----
-    uint32_t hkvd_count;            // 0 = not computed             48 / 4
+    uint32_t hkvd_count;            // High-KV-Deviation token count (CacheBlend-style
+                                    // selective recompute hint). 0 = not computed;
+                                    // indices follow in metadata blob.
     uint32_t schema_version;        // 1 in Phase 1                 52 / 4
 
     // ---- Size validation ----
@@ -68,6 +71,27 @@ static_assert(sizeof(ChunkDescriptor) == 64,
               "if a member must be added.");
 static_assert(std::is_trivially_copyable_v<ChunkDescriptor>);
 static_assert(std::is_standard_layout_v<ChunkDescriptor>);
+
+// Per-field offset locks: catch reorder regressions at compile time. A
+// reordering that preserves sizeof can still break wire layout because pad0_
+// silently absorbs the shift; these assertions pin the on-wire format.
+static_assert(offsetof(ChunkDescriptor, content_hash) == 0);
+static_assert(offsetof(ChunkDescriptor, model_id) == 8);
+static_assert(offsetof(ChunkDescriptor, tokenizer_version) == 16);
+static_assert(offsetof(ChunkDescriptor, layer_count) == 18);
+static_assert(offsetof(ChunkDescriptor, head_count_kv) == 20);
+static_assert(offsetof(ChunkDescriptor, head_dim) == 22);
+static_assert(offsetof(ChunkDescriptor, kv_dtype) == 24);
+static_assert(offsetof(ChunkDescriptor, layout) == 26);
+static_assert(offsetof(ChunkDescriptor, token_count) == 28);
+static_assert(offsetof(ChunkDescriptor, stored_pre_rope) == 32);
+static_assert(offsetof(ChunkDescriptor, pad0_) == 33);
+static_assert(offsetof(ChunkDescriptor, rope_theta_id) == 36);
+static_assert(offsetof(ChunkDescriptor, source_position) == 40);
+static_assert(offsetof(ChunkDescriptor, hkvd_count) == 48);
+static_assert(offsetof(ChunkDescriptor, schema_version) == 52);
+static_assert(offsetof(ChunkDescriptor, kv_blob_size) == 56);
+static_assert(offsetof(ChunkDescriptor, metadata_blob_size) == 60);
 
 constexpr uint32_t kChunkDescriptorSchemaVersion = 1;
 
