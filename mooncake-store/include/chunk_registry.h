@@ -120,6 +120,10 @@ class ChunkRegistry {
     void TouchLocked(Entry& e);
     // Helper: assumes mu_ held. Evict while over capacity.
     void EvictWhileOverCapacityLocked();
+    // Helper: assumes mu_ held. Walks LRU from oldest toward newest,
+    // evicting unpinned entries until total_bytes <= target_bytes (or no
+    // more evictable entries remain). Returns stats for the pass.
+    EvictionStats EvictDownToLocked(size_t target_bytes);
 };
 
 }  // namespace mooncake
