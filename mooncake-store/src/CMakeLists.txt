@@ -3,6 +3,7 @@ add_subdirectory(cachelib_memory_allocator)
 
 set(MOONCAKE_STORE_SOURCES
     chunk_canonical_hash.cpp
+    chunk_registry.cpp
     allocator.cpp
     master_service.cpp
     client_service.cpp
