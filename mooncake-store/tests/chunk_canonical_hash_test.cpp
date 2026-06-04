@@ -77,5 +77,23 @@ TEST(ChunkCanonicalHashTest, ComputeModelIdIsStable) {
     EXPECT_NE(a, 0u);
 }
 
+TEST(ChunkCanonicalHashTest, ContentHashIsStableFrozenValue) {
+    // Golden test. If this fails, the canonical encoding changed —
+    // bump kChunkDescriptorSchemaVersion AND update this value.
+    auto inputs = MakeInputs();
+    uint64_t h = ComputeChunkContentHash(inputs);
+    EXPECT_EQ(h, /*FROZEN=*/0x8b84cd4f57f896c9ULL);
+}
+
+TEST(ChunkCanonicalHashTest, RopeThetaIdIsStableFrozenValue) {
+    uint32_t id = ComputeRopeThetaId(10000.0, 128, 32768);
+    EXPECT_EQ(id, /*FROZEN=*/0x392bf036u);
+}
+
+TEST(ChunkCanonicalHashTest, ModelIdIsStableFrozenValue) {
+    uint64_t id = ComputeModelId("moonshotai/Kimi-K2", "rev-abc");
+    EXPECT_EQ(id, /*FROZEN=*/0xfd911cbfe38d3ae9ULL);
+}
+
 }  // namespace
 }  // namespace mooncake
