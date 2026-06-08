@@ -11,6 +11,7 @@
 #include <ylt/util/tl/expected.hpp>
 
 #include "mutex.h"
+#include "chunk_service.h"
 #include "rpc_service.h"
 #include "types.h"
 #include "utils/scoped_vlog_timer.h"
@@ -315,6 +316,41 @@ struct RpcNameTraits<&WrappedMasterService::EvictDiskReplica> {
 template <>
 struct RpcNameTraits<&WrappedMasterService::BatchEvictDiskReplica> {
     static constexpr const char* value = "BatchEvictDiskReplica";
+};
+
+// ── Chunk Registry RPC name traits ──
+
+template <>
+struct RpcNameTraits<&WrappedChunkService::PutChunkStart> {
+    static constexpr const char* value = "PutChunkStart";
+};
+template <>
+struct RpcNameTraits<&WrappedChunkService::PutChunkEnd> {
+    static constexpr const char* value = "PutChunkEnd";
+};
+template <>
+struct RpcNameTraits<&WrappedChunkService::PutChunkRevoke> {
+    static constexpr const char* value = "PutChunkRevoke";
+};
+template <>
+struct RpcNameTraits<&WrappedChunkService::ResolveChunk> {
+    static constexpr const char* value = "ResolveChunk";
+};
+template <>
+struct RpcNameTraits<&WrappedChunkService::LookupChunks> {
+    static constexpr const char* value = "LookupChunks";
+};
+template <>
+struct RpcNameTraits<&WrappedChunkService::IncRefChunk> {
+    static constexpr const char* value = "IncRefChunk";
+};
+template <>
+struct RpcNameTraits<&WrappedChunkService::DecRefChunk> {
+    static constexpr const char* value = "DecRefChunk";
+};
+template <>
+struct RpcNameTraits<&WrappedChunkService::GetChunkMetrics> {
+    static constexpr const char* value = "GetChunkMetrics";
 };
 
 template <auto ServiceMethod, typename ReturnType, typename... Args>
@@ -1252,6 +1288,88 @@ std::vector<tl::expected<void, ErrorCode>> MasterClient::BatchEvictDiskReplica(
         invoke_batch_rpc<&WrappedMasterService::BatchEvictDiskReplica, void>(
             keys.size(), client_id_, keys, tenant_id, replica_type);
     timer.LogResponse("result=", result.size(), " operations");
+    return result;
+}
+
+// ── Chunk Registry RPC implementations ──
+
+tl::expected<PutChunkStartResponse, ErrorCode>
+MasterClient::PutChunkStart(const ChunkDescriptorWire& desc, uint64_t kv_size,
+                            const ReplicateConfig& config) {
+    ScopedVLogTimer timer(1, "MasterClient::PutChunkStart");
+    timer.LogRequest("content_hash=", desc.content_hash,
+                     ", kv_size=", kv_size);
+
+    auto result = invoke_rpc<&WrappedChunkService::PutChunkStart,
+                             PutChunkStartResponse>(
+        client_id_, desc, kv_size, config);
+    timer.LogResponseExpected(result);
+    return result;
+}
+
+tl::expected<void, ErrorCode>
+MasterClient::PutChunkEnd(uint64_t content_hash) {
+    ScopedVLogTimer timer(1, "MasterClient::PutChunkEnd");
+    timer.LogRequest("content_hash=", content_hash);
+
+    auto result = invoke_rpc<&WrappedChunkService::PutChunkEnd, void>(
+        client_id_, content_hash);
+    timer.LogResponseExpected(result);
+    return result;
+}
+
+tl::expected<void, ErrorCode>
+MasterClient::PutChunkRevoke(uint64_t content_hash) {
+    ScopedVLogTimer timer(1, "MasterClient::PutChunkRevoke");
+    timer.LogRequest("content_hash=", content_hash);
+
+    auto result = invoke_rpc<&WrappedChunkService::PutChunkRevoke, void>(
+        client_id_, content_hash);
+    timer.LogResponseExpected(result);
+    return result;
+}
+
+tl::expected<ResolveChunkResponse, ErrorCode>
+MasterClient::ResolveChunk(uint64_t content_hash) {
+    ScopedVLogTimer timer(1, "MasterClient::ResolveChunk");
+    timer.LogRequest("content_hash=", content_hash);
+
+    auto result = invoke_rpc<&WrappedChunkService::ResolveChunk,
+                             ResolveChunkResponse>(content_hash);
+    timer.LogResponseExpected(result);
+    return result;
+}
+
+tl::expected<std::vector<ChunkLookupResultWire>, ErrorCode>
+MasterClient::LookupChunks(const std::vector<uint64_t>& hashes) {
+    ScopedVLogTimer timer(1, "MasterClient::LookupChunks");
+    timer.LogRequest("hashes_count=", hashes.size());
+
+    auto result = invoke_rpc<&WrappedChunkService::LookupChunks,
+                             std::vector<ChunkLookupResultWire>>(hashes);
+    timer.LogResponseExpected(result);
+    return result;
+}
+
+tl::expected<void, ErrorCode>
+MasterClient::DecRefChunk(uint64_t content_hash) {
+    ScopedVLogTimer timer(1, "MasterClient::DecRefChunk");
+    timer.LogRequest("content_hash=", content_hash);
+
+    auto result = invoke_rpc<&WrappedChunkService::DecRefChunk, void>(
+        content_hash);
+    timer.LogResponseExpected(result);
+    return result;
+}
+
+tl::expected<ChunkRegistryMetricsWire, ErrorCode>
+MasterClient::GetChunkMetrics() {
+    ScopedVLogTimer timer(1, "MasterClient::GetChunkMetrics");
+    timer.LogRequest("action=get_chunk_metrics");
+
+    auto result = invoke_rpc<&WrappedChunkService::GetChunkMetrics,
+                             ChunkRegistryMetricsWire>();
+    timer.LogResponseExpected(result);
     return result;
 }
 

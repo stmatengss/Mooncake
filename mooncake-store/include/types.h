@@ -398,6 +398,13 @@ enum class ErrorCode : int32_t {
     TASK_PENDING_LIMIT_EXCEEDED =
         -1401,              ///< Total pending tasks exceed the limit.
     JOB_NOT_FOUND = -1402,  ///< Job not found.
+
+    // Chunk registry errors (Range: -1600 to -1699)
+    CHUNK_NOT_FOUND = -1600,        ///< Chunk not found in registry.
+    CHUNK_ALREADY_EXISTS = -1601,   ///< Chunk already exists (dedup hit).
+    CHUNK_THETA_MISMATCH = -1602,   ///< RoPE theta mismatch.
+    CHUNK_SCHEMA_MISMATCH = -1603,  ///< Schema version mismatch.
+    CHUNK_STATUS_INVALID = -1604,   ///< Invalid chunk status for operation.
 };
 
 int32_t toInt(ErrorCode errorCode) noexcept;

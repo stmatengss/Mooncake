@@ -2,6 +2,9 @@
 add_subdirectory(cachelib_memory_allocator)
 
 set(MOONCAKE_STORE_SOURCES
+    chunk_canonical_hash.cpp
+    chunk_registry.cpp
+    chunk_client.cpp
     allocator.cpp
     master_service.cpp
     client_service.cpp
@@ -58,6 +61,8 @@ set(MOONCAKE_STORE_SOURCES
     store_c.cpp
     memory_alloc.cpp
     engram/engram_store.cpp
+    chunk_metadata_table.cpp
+    chunk_service.cpp
 )
 
 set(EXTRA_LIBS "")

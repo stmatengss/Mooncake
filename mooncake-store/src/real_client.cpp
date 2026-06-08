@@ -3626,6 +3626,226 @@ int RealClient::put_from(const std::string &key, void *buffer, size_t size,
     return to_py_ret(result);
 }
 
+// --- Chunk-registry implementations ---
+
+tl::expected<void, ErrorCode> RealClient::put_chunk_from_internal(
+    const ChunkDescriptor &desc, void *kv_buffer, size_t kv_size,
+    const ReplicateConfig &config) {
+    if (!client_) {
+        LOG(ERROR) << "Client is not initialized";
+        return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    if (kv_size == 0) {
+        LOG(WARNING) << "Attempting to put empty chunk data for content_hash: "
+                     << desc.content_hash;
+        return {};
+    }
+
+    // 1. Build wire descriptor and ask the master for replica allocation.
+    ChunkDescriptorWire desc_wire(desc);
+
+    auto start_result =
+        client_->master_client().PutChunkStart(desc_wire, kv_size, config);
+    if (!start_result) {
+        LOG(ERROR) << "PutChunkStart failed for content_hash="
+                   << desc.content_hash << ": "
+                   << toString(start_result.error());
+        return tl::unexpected(start_result.error());
+    }
+
+    // 2. Dedup hit — data already stored, nothing to transfer.
+    if (start_result->already_exists) {
+        VLOG(1) << "chunk_already_exists content_hash=" << desc.content_hash;
+        return {};
+    }
+
+    // 3. Build slices from the user buffer.
+    std::vector<Slice> slices;
+    uint64_t offset = 0;
+    while (offset < kv_size) {
+        auto chunk_size = std::min(kv_size - offset, kMaxSliceSize);
+        void *chunk_ptr = static_cast<char *>(kv_buffer) + offset;
+        slices.emplace_back(Slice{chunk_ptr, chunk_size});
+        offset += chunk_size;
+    }
+
+    // 4. Write data to each allocated memory replica via TransferEngine.
+    //    We use Client::WriteToReplica (a thin public wrapper around
+    //    TransferWrite) to avoid calling Client::Put, which would call
+    //    PutStart a second time.
+    for (const auto &replica : start_result->replicas) {
+        if (replica.is_memory_replica()) {
+            ErrorCode transfer_err =
+                client_->WriteToReplica(replica, slices);
+            if (transfer_err != ErrorCode::OK) {
+                LOG(ERROR) << "TransferWrite failed for content_hash="
+                           << desc.content_hash << ": "
+                           << toString(transfer_err);
+                // Revoke so the master releases the allocated replica.
+                auto revoke_result =
+                    client_->master_client().PutChunkRevoke(desc.content_hash);
+                if (!revoke_result) {
+                    LOG(ERROR)
+                        << "PutChunkRevoke also failed for content_hash="
+                        << desc.content_hash;
+                }
+                return tl::unexpected(transfer_err);
+            }
+        }
+    }
+
+    // 5. Mark the chunk as complete on the master.
+    auto end_result =
+        client_->master_client().PutChunkEnd(desc.content_hash);
+    if (!end_result) {
+        LOG(ERROR) << "PutChunkEnd failed for content_hash="
+                   << desc.content_hash << ": "
+                   << toString(end_result.error());
+        return tl::unexpected(end_result.error());
+    }
+
+    return {};
+}
+
+int RealClient::put_chunk_from(const ChunkDescriptor &desc, void *kv_buffer,
+                               size_t kv_size, const ReplicateConfig &config) {
+    auto result = execute_timed_operation<tl::expected<void, ErrorCode>>(
+        [&]() {
+            return put_chunk_from_internal(desc, kv_buffer, kv_size, config);
+        },
+        [](const auto &ret) { return ret.has_value(); },
+        [&](uint64_t latency_us, const auto &) {
+            client_->ObserveTransferOperation(TransferOperationKind::kWrite,
+                                              "put_chunk_from", kv_size,
+                                              latency_us);
+        });
+    return to_py_ret(result);
+}
+
+tl::expected<int64_t, ErrorCode> RealClient::get_chunk_into_internal(
+    uint64_t content_hash, void *kv_buffer, size_t kv_size,
+    ChunkDescriptor *out_desc) {
+    if (!client_) {
+        LOG(ERROR) << "Client is not initialized";
+        return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    // 1. Resolve the chunk — returns descriptor + replicas.
+    auto resolve_result =
+        client_->master_client().ResolveChunk(content_hash);
+    if (!resolve_result) {
+        LOG(ERROR) << "ResolveChunk failed for content_hash=" << content_hash
+                   << ": " << toString(resolve_result.error());
+        return tl::unexpected(resolve_result.error());
+    }
+
+    auto &resp = resolve_result.value();
+
+    // 2. Build a QueryResult from the resolve response so we can use
+    //    the existing Client::Get(key, QueryResult, slices) overload.
+    auto lease_timeout = std::chrono::steady_clock::now() +
+                         std::chrono::milliseconds(resp.lease_ttl_ms);
+    QueryResult query_result(std::move(resp.replicas), lease_timeout);
+
+    // 3. Synthesize a store key from the content hash (used only for
+    //    logging inside Client::Get; no master lookup occurs).
+    std::string store_key = "chunk:" + std::to_string(content_hash);
+
+    // 4. Compute total object size from the first complete replica so
+    //    we can allocate slices correctly.
+    uint64_t total_size = 0;
+    for (const auto &r : query_result.replicas) {
+        total_size = calculate_total_size(r);
+        if (total_size > 0) break;
+    }
+
+    if (kv_size < total_size) {
+        LOG(ERROR) << "get_chunk_into: buffer too small (" << kv_size
+                   << " < " << total_size << ") for content_hash="
+                   << content_hash;
+        // Release the ref we acquired via ResolveChunk.
+        client_->master_client().DecRefChunk(content_hash);
+        return tl::unexpected(ErrorCode::INVALID_PARAMS);
+    }
+
+    // 5. Build slices and transfer.
+    std::vector<Slice> slices;
+    if (!query_result.replicas.empty()) {
+        allocateSlices(slices, query_result.replicas.front(), kv_buffer);
+    }
+
+    auto get_result = client_->Get(store_key, query_result, slices);
+    if (!get_result) {
+        LOG(ERROR) << "Get failed for content_hash=" << content_hash
+                   << ": " << toString(get_result.error());
+        client_->master_client().DecRefChunk(content_hash);
+        return tl::unexpected(get_result.error());
+    }
+
+    // 6. Populate output descriptor if requested.
+    if (out_desc) {
+        *out_desc = resolve_result->descriptor.ToDescriptor();
+    }
+
+    // 7. Release the read reference.
+    auto dec_result =
+        client_->master_client().DecRefChunk(content_hash);
+    if (!dec_result) {
+        LOG(WARNING) << "DecRefChunk failed for content_hash=" << content_hash
+                     << ": " << toString(dec_result.error());
+        // Non-fatal: data was already transferred.
+    }
+
+    return static_cast<int64_t>(total_size);
+}
+
+int64_t RealClient::get_chunk_into(uint64_t content_hash, void *kv_buffer,
+                                   size_t kv_size,
+                                   ChunkDescriptor *out_desc) {
+    auto result = execute_timed_operation<tl::expected<int64_t, ErrorCode>>(
+        [&]() {
+            return get_chunk_into_internal(content_hash, kv_buffer, kv_size,
+                                          out_desc);
+        },
+        [](const auto &ret) { return ret.has_value(); },
+        [&](uint64_t latency_us, const auto &ret) {
+            client_->ObserveTransferOperation(
+                TransferOperationKind::kRead, "get_chunk_into",
+                static_cast<uint64_t>(ret.value()), latency_us);
+        });
+    return to_py_ret(result);
+}
+
+std::vector<ChunkLookupResult> RealClient::lookup_chunks(
+    const std::vector<uint64_t> &hashes) {
+    if (!client_) {
+        LOG(ERROR) << "Client is not initialized";
+        // Return a vector of "not found" results.
+        return std::vector<ChunkLookupResult>(
+            hashes.size(), ChunkLookupResult{false, 0, 0, 0});
+    }
+
+    auto result = client_->master_client().LookupChunks(hashes);
+    if (!result) {
+        LOG(ERROR) << "LookupChunks RPC failed: " << toString(result.error());
+        return std::vector<ChunkLookupResult>(
+            hashes.size(), ChunkLookupResult{false, 0, 0, 0});
+    }
+
+    // Convert wire types to domain types.
+    std::vector<ChunkLookupResult> out;
+    out.reserve(result->size());
+    for (const auto &w : result.value()) {
+        out.push_back(ChunkLookupResult{
+            w.exists,
+            static_cast<uint64_t>(w.kv_blob_size),
+            static_cast<uint64_t>(w.metadata_blob_size),
+            w.replica_count});
+    }
+    return out;
+}
+
 // --- Upsert implementations ---
 
 tl::expected<void, ErrorCode> RealClient::upsert_internal(

@@ -11,6 +11,7 @@
 
 #include <ylt/coro_rpc/coro_rpc_server.hpp>
 
+#include "chunk_service.h"
 #include "http_metadata_server.h"
 #include "master_config.h"
 #include "rpc_service.h"
@@ -172,6 +173,8 @@ class InProcMaster {
             admin_server_->SetServiceDelegate(wrapped_);
             admin_server_->SetServiceAvailable(true);
             RegisterRpcService(*server_, *wrapped_);
+            chunk_service_ = std::make_unique<WrappedChunkService>(*wrapped_);
+            RegisterChunkService(*server_, *chunk_service_);
 
             auto ec = server_->async_start();
             if (ec.hasResult()) {
@@ -197,6 +200,7 @@ class InProcMaster {
         if (server_) {
             server_->stop();
             server_.reset();
+            chunk_service_.reset();
             wrapped_.reset();
         }
         if (meta_server_) {
@@ -225,6 +229,7 @@ class InProcMaster {
    private:
     std::unique_ptr<coro_rpc::coro_rpc_server> server_;
     std::shared_ptr<WrappedMasterService> wrapped_;
+    std::unique_ptr<WrappedChunkService> chunk_service_;
     std::unique_ptr<MasterAdminServer> admin_server_;
     std::unique_ptr<HttpMetadataServer> meta_server_;
     int rpc_port_ = 0;
