@@ -620,6 +620,26 @@ class Client {
 
     bool IsReplicaOnLocalMemory(const Replica::Descriptor& replica);
 
+    /**
+     * @brief Access the underlying MasterClient for chunk-level RPC operations.
+     * @return Reference to the MasterClient instance.
+     */
+    MasterClient& master_client() { return master_client_; }
+
+    /**
+     * @brief Write data to a pre-resolved replica via TransferEngine.
+     *
+     * Exposed for chunk-registry flows where the caller has already obtained
+     * replica descriptors from PutChunkStart (so Client::Put, which internally
+     * calls PutStart, must be bypassed).
+     *
+     * @param replica  Target replica descriptor (must be a memory replica).
+     * @param slices   Data slices to write.
+     * @return ErrorCode::OK on success, otherwise the transfer error code.
+     */
+    ErrorCode WriteToReplica(const Replica::Descriptor& replica,
+                             std::vector<Slice>& slices);
+
    protected:
     /**
      * @brief Constructor exposed to subclasses for testing only; production

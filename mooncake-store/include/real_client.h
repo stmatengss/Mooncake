@@ -14,6 +14,9 @@
 #include "pyclient.h"
 #include "client_service.h"
 #include "client_buffer.hpp"
+#include "chunk_descriptor.h"
+#include "chunk_registry.h"
+#include "chunk_rpc_types.h"
 #include "mutex.h"
 #include "utils.h"
 #include "rpc_types.h"
@@ -261,6 +264,40 @@ class RealClient : public PyClient {
     int upsert_batch(const std::vector<std::string> &keys,
                      const std::vector<std::span<const char>> &values,
                      const ReplicateConfig &config = ReplicateConfig{});
+
+    // ---- Chunk-registry (content-addressed) methods ----
+
+    /**
+     * @brief Store a KV chunk by content hash with deduplication.
+     * @param desc  Chunk descriptor (content_hash, shape, etc.).
+     * @param kv_buffer Pre-registered buffer holding the KV data.
+     * @param kv_size   Size of the KV data in bytes.
+     * @param config    Replication configuration.
+     * @return 0 on success, negative ErrorCode on failure.
+     */
+    int put_chunk_from(const ChunkDescriptor &desc, void *kv_buffer,
+                       size_t kv_size,
+                       const ReplicateConfig &config = ReplicateConfig{});
+
+    /**
+     * @brief Retrieve a KV chunk by content hash into a pre-registered buffer.
+     * @param content_hash Content hash identifying the chunk.
+     * @param kv_buffer    Pre-registered destination buffer.
+     * @param kv_size      Size of the destination buffer.
+     * @param out_desc     Optional output: filled with the chunk descriptor.
+     * @return Number of bytes read on success, negative ErrorCode on failure.
+     */
+    int64_t get_chunk_into(uint64_t content_hash, void *kv_buffer,
+                           size_t kv_size,
+                           ChunkDescriptor *out_desc = nullptr);
+
+    /**
+     * @brief Look up existence and metadata for a batch of content hashes.
+     * @param hashes Content hashes to look up.
+     * @return Vector of ChunkLookupResult (one per hash, in order).
+     */
+    std::vector<ChunkLookupResult> lookup_chunks(
+        const std::vector<uint64_t> &hashes);
 
     [[nodiscard]] std::string get_hostname() const;
 
@@ -596,6 +633,15 @@ class RealClient : public PyClient {
         const ReplicateConfig &config = ReplicateConfig{},
         std::shared_ptr<ClientBufferAllocator> client_buffer_allocator =
             nullptr);
+
+    // ---- Chunk-registry internals ----
+    tl::expected<void, ErrorCode> put_chunk_from_internal(
+        const ChunkDescriptor &desc, void *kv_buffer, size_t kv_size,
+        const ReplicateConfig &config = ReplicateConfig{});
+
+    tl::expected<int64_t, ErrorCode> get_chunk_into_internal(
+        uint64_t content_hash, void *kv_buffer, size_t kv_size,
+        ChunkDescriptor *out_desc = nullptr);
 
     std::vector<tl::expected<void, ErrorCode>> batch_put_from_internal(
         const std::vector<std::string> &keys,

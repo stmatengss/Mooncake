@@ -2830,6 +2830,11 @@ ErrorCode Client::TransferReadInternal(
     return future->get();
 }
 
+ErrorCode Client::WriteToReplica(const Replica::Descriptor& replica,
+                                 std::vector<Slice>& slices) {
+    return TransferWrite(replica, slices);
+}
+
 ErrorCode Client::TransferWrite(const Replica::Descriptor& replica_descriptor,
                                 std::vector<Slice>& slices) {
     return TransferData(replica_descriptor, slices, TransferRequest::WRITE);
