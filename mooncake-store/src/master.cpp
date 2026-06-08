@@ -12,6 +12,7 @@
 #include "duration_utils.h"
 #include "ha/leadership/master_service_supervisor.h"
 #include "http_metadata_server.h"
+#include "chunk_service.h"
 #include "rpc_service.h"
 #include "types.h"
 #include "utils.h"
@@ -1110,6 +1111,8 @@ int main(int argc, char* argv[]) {
         admin_server.SetServiceAvailable(true);
 
         mooncake::RegisterRpcService(server, *wrapped_master_service);
+        mooncake::WrappedChunkService chunk_service(*wrapped_master_service);
+        mooncake::RegisterChunkService(server, chunk_service);
         return server.start();
     }
 }
