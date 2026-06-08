@@ -66,7 +66,12 @@ const std::string& toString(ErrorCode errorCode) noexcept {
         {ErrorCode::PERSISTENT_FAIL, "PERSISTENT_FAIL"},
         {ErrorCode::TASK_NOT_FOUND, "TASK_NOT_FOUND"},
         {ErrorCode::TASK_PENDING_LIMIT_EXCEEDED, "TASK_PENDING_LIMIT_EXCEEDED"},
-        {ErrorCode::JOB_NOT_FOUND, "JOB_NOT_FOUND"}};
+        {ErrorCode::JOB_NOT_FOUND, "JOB_NOT_FOUND"},
+        {ErrorCode::CHUNK_NOT_FOUND, "CHUNK_NOT_FOUND"},
+        {ErrorCode::CHUNK_ALREADY_EXISTS, "CHUNK_ALREADY_EXISTS"},
+        {ErrorCode::CHUNK_THETA_MISMATCH, "CHUNK_THETA_MISMATCH"},
+        {ErrorCode::CHUNK_SCHEMA_MISMATCH, "CHUNK_SCHEMA_MISMATCH"},
+        {ErrorCode::CHUNK_STATUS_INVALID, "CHUNK_STATUS_INVALID"}};
 
     auto it = errorCodeMap.find(errorCode);
     static const std::string unknownError = "UNKNOWN_ERROR";
