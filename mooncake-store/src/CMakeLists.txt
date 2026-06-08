@@ -61,6 +61,7 @@ set(MOONCAKE_STORE_SOURCES
     store_c.cpp
     engram/engram_store.cpp
     chunk_metadata_table.cpp
+    chunk_service.cpp
 )
 
 set(EXTRA_LIBS "")
