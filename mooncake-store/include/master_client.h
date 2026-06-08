@@ -17,6 +17,7 @@
 #include "segment.h"
 #include "types.h"
 #include "rpc_types.h"
+#include "chunk_rpc_types.h"
 #include "master_metric_manager.h"
 #include "task_manager.h"
 
@@ -576,6 +577,30 @@ class MasterClient {
     [[nodiscard]] std::vector<tl::expected<void, ErrorCode>>
     BatchEvictDiskReplica(const std::vector<std::string>& keys,
                           ReplicaType replica_type);
+
+    // ── Chunk Registry RPC methods ──
+
+    [[nodiscard]] tl::expected<PutChunkStartResponse, ErrorCode>
+    PutChunkStart(const ChunkDescriptorWire& desc, uint64_t kv_size,
+                  const ReplicateConfig& config);
+
+    [[nodiscard]] tl::expected<void, ErrorCode>
+    PutChunkEnd(uint64_t content_hash);
+
+    [[nodiscard]] tl::expected<void, ErrorCode>
+    PutChunkRevoke(uint64_t content_hash);
+
+    [[nodiscard]] tl::expected<ResolveChunkResponse, ErrorCode>
+    ResolveChunk(uint64_t content_hash);
+
+    [[nodiscard]] tl::expected<std::vector<ChunkLookupResultWire>, ErrorCode>
+    LookupChunks(const std::vector<uint64_t>& hashes);
+
+    [[nodiscard]] tl::expected<void, ErrorCode>
+    DecRefChunk(uint64_t content_hash);
+
+    [[nodiscard]] tl::expected<ChunkRegistryMetricsWire, ErrorCode>
+    GetChunkMetrics();
 
    private:
     /**
