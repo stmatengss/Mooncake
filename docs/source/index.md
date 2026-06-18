@@ -164,6 +164,7 @@ troubleshooting/troubleshooting
 :maxdepth: 1
 
 community/governance
+community/agent-harness
 :::
 
 % Archived content

@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 .github/hooks/scripts/session_start.py",
+        "cwd": ".",
+        "timeout": 10
+      }
+    ]
+  }
+}
