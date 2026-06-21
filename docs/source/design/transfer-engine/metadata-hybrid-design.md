@@ -514,11 +514,11 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 
 **范围**：Legacy Engine
 
-- [ ] 定义 `MetadataDiscoveryMode` enum，替换 `p2p_handshake_mode_` 布尔
-- [ ] `SegmentDesc` 增加 `discovery` 子结构；更新 `encodeSegmentDesc` / `decodeSegmentDesc`
-- [ ] 连接串 `+P2PHANDSHAKE` 解析
-- [ ] Hybrid 模式下 `updateSegmentDesc()` / `addRpcMetaEntry()` 写入 Central
-- [ ] 单元测试：schema 编解码向后兼容
+- [x] 定义 `MetadataDiscoveryMode` enum，替换 `p2p_handshake_mode_` 布尔
+- [x] `SegmentDesc` 增加 `discovery` 子结构；更新 `encodeSegmentDesc` / `decodeSegmentDesc`
+- [x] 连接串 `+P2PHANDSHAKE` 解析
+- [x] Hybrid 模式下 `updateSegmentDesc()` / `addRpcMetaEntry()` 写入 Central
+- [x] 单元测试：schema 编解码向后兼容（见 `metadata_discovery_test.cpp`）
 
 **验收**：Hybrid 节点启动后，Central store 可查到 segment 和 rpc_meta。
 
@@ -526,10 +526,10 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 
 **范围**：Legacy Engine
 
-- [ ] 实现 `MetadataResolver` 接口及三个实现类
-- [ ] `getSegmentDesc()` / `getRpcMetaEntry()` fallback 链
-- [ ] `isDirectConnectEndpoint()` 工具函数
-- [ ] 集成测试：场景 C、D
+- [x] `getSegmentDesc()` / `getRpcMetaEntry()` fallback 链（内联于 `TransferMetadata`）
+- [x] `isDirectConnectEndpoint()` 工具函数
+- [x] 集成测试：场景 C、D（见 `metadata_hybrid_test.cpp`）
+- [ ] 独立 `MetadataResolver` 接口及三个实现类（可选重构，当前未拆分）
 
 **验收**：Central↔P2P 双向 RDMA 传输 e2e 通过。
 
@@ -537,9 +537,9 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 
 **范围**：TENT
 
-- [ ] 实现 `HybridSegmentRegistry`
-- [ ] `ControlService` 支持 `metadata_type=hybrid`
-- [ ] `discovery` 字段与 `rpc_server_addr` 协同
+- [x] 实现 `HybridSegmentRegistry`
+- [x] `ControlService` 支持 `metadata_type=hybrid`
+- [x] `discovery` 字段与 `rpc_server_addr` 协同
 - [ ] TENT e2e 测试
 
 **验收**：`MC_USE_TENT=1` 下混合场景与 Legacy 行为一致。
@@ -554,7 +554,7 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 
 ### Phase 5：健壮性
 
-- [ ] `receivePeerMetadata` 缓存
+- [x] `receivePeerMetadata` 缓存
 - [ ] 端口变化自动 re-publish
 - [ ] 双网卡（`MC_RDMA_BIND_ADDRESS`）混合模式 e2e
 - [ ] Benchmark：metadata 查询延迟对比
@@ -567,24 +567,31 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 
 | 测试文件 | 覆盖点 |
 |----------|--------|
-| `metadata_resolver_test.cpp` | Central/P2P/Hybrid resolver；fallback 顺序 |
-| `segment_discovery_schema_test.cpp` | discovery 字段编解码；缺省兼容 |
-| `metadata_conn_string_test.cpp` | `+P2PHANDSHAKE` 解析 |
+| `metadata_discovery_test.cpp` | 连接串解析、`+P2PHANDSHAKE`、`MC_METADATA_DISCOVERY_MODE`、`isDirectConnectEndpoint` |
+| `metadata_hybrid_test.cpp` | P2P exchange、Hybrid central fallback、HTTP central 发布/查询 |
 
 ### 8.2 集成测试
 
-新增 `metadata_hybrid_test.cpp`：
+`metadata_hybrid_test.cpp`（已实现）：
+
+| 用例 | 描述 |
+|------|------|
+| `P2pExchangeBetweenPeers` | 纯 P2P 节点 metadata exchange |
+| `HybridFallbackToDirectP2pEndpoint` | Hybrid initiator central 失败后 fallback 到 ip:port |
+| `PureP2pDoesNotPublishToCentral` | 纯 P2P 不写 Central |
+| `HybridPublishAndCentralLookup` | Hybrid 双注册，Central 按 hostname 查询 |
+| `CentralInitiatorReadsHybridTargetByHostname` | Central initiator 读取 hybrid target |
+| `HybridInitiatorUsesP2pFallbackForDirectEndpoint` | Hybrid initiator 对纯 P2P endpoint fallback |
+
+待补充：
 
 | 用例 | 描述 |
 |------|------|
 | `CentralInitiator_P2PTarget` | etcd initiator → P2P target（经 hybrid 双注册） |
 | `P2PInitiator_CentralTarget` | P2P initiator → central target |
 | `HybridBidirectional` | 两个 hybrid 节点双向传输 |
-| `CentralLookupFallbackP2P` | Central 查不到时 fallback 到 ip:port exchange |
 | `RpcPortChange_ReDiscovery` | target 重启后端口变化，initiator 恢复 |
 | `DualNic_Hybrid` | `MC_RDMA_BIND_ADDRESS` 下混合模式 |
-| `BackwardCompat_PureCentral` | 回归：纯 central 不受影响 |
-| `BackwardCompat_PureP2P` | 回归：纯 P2P 不受影响 |
 
 ### 8.3 故障注入
 

@@ -75,3 +75,16 @@ TEST_F(MetadataDiscoveryTest, MetadataDiscoveryModeToString) {
     EXPECT_STREQ(metadataDiscoveryModeToString(MetadataDiscoveryMode::Hybrid),
                  "hybrid");
 }
+
+TEST_F(MetadataDiscoveryTest, EnvHybridWithCentralConnString) {
+    setenv("MC_METADATA_DISCOVERY_MODE", "hybrid", 1);
+    auto parsed = parseMetadataConnString("http://127.0.0.1:8080/metadata");
+    EXPECT_EQ(parsed.discovery_mode, MetadataDiscoveryMode::Hybrid);
+    EXPECT_EQ(parsed.storage_conn_string, "http://127.0.0.1:8080/metadata");
+    unsetenv("MC_METADATA_DISCOVERY_MODE");
+}
+
+TEST_F(MetadataDiscoveryTest, RejectsHostnameWithoutExplicitPort) {
+    EXPECT_FALSE(isDirectConnectEndpoint("node01"));
+    EXPECT_FALSE(isDirectConnectEndpoint("127.0.0.1"));
+}
