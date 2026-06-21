@@ -32,16 +32,21 @@
 #include <unordered_map>
 
 #include "common.h"
+#include "metadata_discovery.h"
 #include "topology.h"
 
 namespace mooncake {
 struct MetadataStoragePlugin;
 struct HandShakePlugin;
 
-#define P2PHANDSHAKE "P2PHANDSHAKE"
-
 class TransferMetadata {
    public:
+    struct DiscoveryDesc {
+        std::string mode;
+        std::string rpc_endpoint;
+        std::string prefer;
+    };
+
     struct DeviceDesc {
         std::string name;
         uint16_t lid;
@@ -109,6 +114,8 @@ class TransferMetadata {
         // non-empty, NIC paths are constructed using this value instead
         // of `name`.
         std::string rdma_server_name;
+
+        DiscoveryDesc discovery;
 
         // Returns the server name to use for NIC path construction.
         // Uses rdma_server_name when available, otherwise falls back
@@ -228,7 +235,25 @@ class TransferMetadata {
     int receivePeerProbe(const Json::Value &peer_json, Json::Value &local_json);
     std::string getFullMetadataKey(const std::string &segment_name) const;
 
-    bool p2p_handshake_mode_{false};
+    bool usesCentralStorage() const;
+    bool usesP2pExchange() const;
+    bool shouldPublishToCentral() const;
+
+    void fillDiscoveryFields(SegmentDesc &desc) const;
+    void cacheRpcMetaFromDiscovery(const SegmentDesc &desc,
+                                   const std::string &segment_name);
+    void cacheP2pNicPathMapping(const std::shared_ptr<SegmentDesc> &result,
+                                const std::string &segment_name);
+    bool fetchSegmentDescViaP2P(const std::string &endpoint,
+                                Json::Value &peer_json);
+    bool getSegmentDescFromCentral(const std::string &segment_name,
+                                   Json::Value &peer_json,
+                                   std::string &p2p_endpoint);
+    bool getRpcMetaFromCentral(const std::string &server_name, RpcMetaDesc &desc);
+    void registerP2pHandshakeCallbacks();
+    int startP2pHandshakeDaemon(RpcMetaDesc &desc);
+
+    MetadataDiscoveryMode discovery_mode_{MetadataDiscoveryMode::Central};
     std::string common_key_prefix_;
     std::string rpc_meta_prefix_;
     // local cache

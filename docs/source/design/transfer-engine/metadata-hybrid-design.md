@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 状态 | Draft — 待 Review |
+| 状态 | Implemented |
 | 作者 | Mooncake Team |
 | 创建日期 | 2026-06-12 |
 | 关联模块 | `mooncake-transfer-engine`（Legacy + TENT）、`mooncake-store`、`mooncake-wheel` |

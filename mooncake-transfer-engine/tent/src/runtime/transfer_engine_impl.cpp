@@ -302,7 +302,11 @@ Status TransferEngineImpl::construct() {
 
     if (metadata_type == "p2p")
         local_segment_name_ = buildIpAddrWithPort(hostname_, port_, ipv6_);
-    else if (local_segment_name_.empty())
+    else if (metadata_type == "hybrid") {
+        if (local_segment_name_.empty()) {
+            local_segment_name_ = randomSegmentName();
+        }
+    } else if (local_segment_name_.empty())
         local_segment_name_ = randomSegmentName();
 
     CHECK_STATUS(setupLocalSegment());

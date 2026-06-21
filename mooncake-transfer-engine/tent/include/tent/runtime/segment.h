@@ -175,6 +175,14 @@ struct SegmentDesc {
     // of `name`.
     std::string rdma_server_name;
 
+    struct DiscoveryDesc {
+        std::string mode;
+        std::string rpc_endpoint;
+        std::string prefer;
+    };
+
+    DiscoveryDesc discovery;
+
    public:
     BufferDesc* findBuffer(uint64_t base, uint64_t length);
     DeviceDesc* findDevice(const std::string& name);
@@ -198,6 +206,17 @@ inline void to_json(json& j, const SegmentDesc& s) {
     if (!s.rdma_server_name.empty()) {
         j["rdma_server_name"] = s.rdma_server_name;
     }
+    if (!s.discovery.mode.empty() || !s.discovery.rpc_endpoint.empty()) {
+        json discovery = json::object();
+        if (!s.discovery.mode.empty()) discovery["mode"] = s.discovery.mode;
+        if (!s.discovery.rpc_endpoint.empty()) {
+            discovery["rpc_endpoint"] = s.discovery.rpc_endpoint;
+        }
+        if (!s.discovery.prefer.empty()) {
+            discovery["prefer"] = s.discovery.prefer;
+        }
+        j["discovery"] = discovery;
+    }
     if (s.type == SegmentType::Memory) {
         j["detail"] = std::get<MemorySegmentDesc>(s.detail);
     } else {
@@ -212,6 +231,18 @@ inline void from_json(const json& j, SegmentDesc& s) {
     j.at("rpc_server_addr").get_to(s.rpc_server_addr);
     if (j.contains("rdma_server_name")) {
         j.at("rdma_server_name").get_to(s.rdma_server_name);
+    }
+    if (j.contains("discovery") && j.at("discovery").is_object()) {
+        const auto& discovery = j.at("discovery");
+        if (discovery.contains("mode")) {
+            discovery.at("mode").get_to(s.discovery.mode);
+        }
+        if (discovery.contains("rpc_endpoint")) {
+            discovery.at("rpc_endpoint").get_to(s.discovery.rpc_endpoint);
+        }
+        if (discovery.contains("prefer")) {
+            discovery.at("prefer").get_to(s.discovery.prefer);
+        }
     }
     if (s.type == SegmentType::Memory) {
         s.detail = j.at("detail").get<MemorySegmentDesc>();

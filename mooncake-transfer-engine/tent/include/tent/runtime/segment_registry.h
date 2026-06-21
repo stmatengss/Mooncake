@@ -86,6 +86,24 @@ class PeerSegmentRegistry : public SegmentRegistry {
     }
 };
 
+class HybridSegmentRegistry : public SegmentRegistry {
+   public:
+    explicit HybridSegmentRegistry(const std::string &storage_conn_string);
+
+    virtual ~HybridSegmentRegistry() {}
+
+   public:
+    virtual Status getSegmentDesc(SegmentDescRef &desc,
+                                  const std::string &segment_name);
+
+    virtual Status putSegmentDesc(SegmentDescRef &desc);
+
+    virtual Status deleteSegmentDesc(const std::string &segment_name);
+
+   private:
+    std::unique_ptr<CentralSegmentRegistry> central_;
+};
+
 }  // namespace tent
 }  // namespace mooncake
 

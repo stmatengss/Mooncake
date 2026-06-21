@@ -160,6 +160,9 @@ ControlService::ControlService(const std::string& type,
     if (type == "p2p") {
         auto agent = std::make_unique<PeerSegmentRegistry>();
         manager_ = std::make_unique<SegmentManager>(std::move(agent));
+    } else if (type == "hybrid") {
+        auto agent = std::make_unique<HybridSegmentRegistry>(servers);
+        manager_ = std::make_unique<SegmentManager>(std::move(agent));
     } else {
         auto agent = std::make_unique<CentralSegmentRegistry>(type, servers);
         manager_ = std::make_unique<SegmentManager>(std::move(agent));

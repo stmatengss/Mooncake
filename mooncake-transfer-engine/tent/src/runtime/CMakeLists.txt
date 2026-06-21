@@ -1,6 +1,10 @@
 file(GLOB TENT_RUNTIME_SOURCES "*.cpp")
 add_library(tent_runtime OBJECT ${TENT_RUNTIME_SOURCES})
 
+target_include_directories(
+  tent_runtime
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../../include)
+
 if (TARGET metastore_redis)
   add_definitions(-DUSE_REDIS)
   target_link_libraries(tent_runtime PUBLIC metastore_redis)
