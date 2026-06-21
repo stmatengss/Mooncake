@@ -548,14 +548,14 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 
 **范围**：Store、Python、文档
 
-- [ ] `mooncake_config.py` / Store client 配置透传
+- [x] `mooncake_config.py` / Store client 配置透传（`metadata_discovery_mode`、`apply_transfer_engine_env`）
 - [ ] 部署文档更新
-- [ ] `mooncake-troubleshoot` skill 增加 hybrid 诊断
+- [x] `mooncake-troubleshoot` skill 增加 hybrid 诊断
 
 ### Phase 5：健壮性
 
 - [x] `receivePeerMetadata` 缓存
-- [ ] 端口变化自动 re-publish
+- [x] 端口变化自动 re-publish（`rePublishRpcMetaEntry` + HTTP metadata 允许更新）
 - [ ] 双网卡（`MC_RDMA_BIND_ADDRESS`）混合模式 e2e
 - [ ] Benchmark：metadata 查询延迟对比
 
@@ -582,6 +582,7 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 | `HybridPublishAndCentralLookup` | Hybrid 双注册，Central 按 hostname 查询 |
 | `CentralInitiatorReadsHybridTargetByHostname` | Central initiator 读取 hybrid target |
 | `HybridInitiatorUsesP2pFallbackForDirectEndpoint` | Hybrid initiator 对纯 P2P endpoint fallback |
+| `HybridRepublishRpcMetaAfterPortChange` | RPC 端口变化后 re-publish 到 Central |
 
 待补充：
 

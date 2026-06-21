@@ -52,6 +52,24 @@ from typing import Optional
 
 DEFAULT_GLOBAL_SEGMENT_SIZE = 3355443200  # 3.125 GiB
 DEFAULT_LOCAL_BUFFER_SIZE = 1073741824  # 1.0 GiB
+P2P_HANDSHAKE = "P2PHANDSHAKE"
+P2P_HANDSHAKE_SUFFIX = "+P2PHANDSHAKE"
+_VALID_DISCOVERY_MODES = {"central", "p2p", "hybrid"}
+
+
+def _normalize_discovery_mode(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized == "p2phandshake":
+        return "p2p"
+    if normalized not in _VALID_DISCOVERY_MODES:
+        raise ValueError(
+            "metadata_discovery_mode must be one of: central, p2p, hybrid"
+        )
+    return normalized
 
 _SIZE_SUFFIXES = [
     ("kb", 1024),
@@ -92,6 +110,11 @@ class MooncakeConfig:
     Attributes:
         local_hostname (str): The hostname of the local machine.
         metadata_server (str): The address of the metadata server.
+        metadata_discovery_mode (Optional[str]): Metadata discovery mode for
+            Transfer Engine: ``central``, ``p2p``, or ``hybrid``. When set to
+            ``hybrid`` and ``metadata_server`` has no ``+P2PHANDSHAKE`` suffix,
+            the effective connection string appends the suffix. Can also be set
+            via ``MC_METADATA_DISCOVERY_MODE``.
         global_segment_size (int): The size of each global segment in bytes.
         local_buffer_size (int): The size of the local buffer in bytes.
         protocol (str): The communication protocol to use. Supported values:
@@ -140,6 +163,30 @@ class MooncakeConfig:
     master_server_address: str
     enable_ssd_offload: bool = False
     ssd_offload_path: str = ""
+    metadata_discovery_mode: Optional[str] = None
+
+    def effective_metadata_server(self) -> str:
+        """Return the metadata connection string for Transfer Engine init."""
+        mode = _normalize_discovery_mode(self.metadata_discovery_mode)
+        conn = self.metadata_server
+        if conn == P2P_HANDSHAKE or mode == "p2p":
+            return P2P_HANDSHAKE
+        if mode == "hybrid" and not conn.endswith(P2P_HANDSHAKE_SUFFIX):
+            return conn + P2P_HANDSHAKE_SUFFIX
+        return conn
+
+    def apply_transfer_engine_env(self) -> None:
+        """Export metadata settings consumed by the C++ Transfer Engine."""
+        effective = self.effective_metadata_server()
+        os.environ["MC_METADATA_SERVER"] = effective
+        os.environ["MOONCAKE_TE_META_DATA_SERVER"] = effective
+        mode = _normalize_discovery_mode(self.metadata_discovery_mode)
+        if mode is not None:
+            os.environ["MC_METADATA_DISCOVERY_MODE"] = mode
+        elif effective.endswith(P2P_HANDSHAKE_SUFFIX):
+            os.environ.pop("MC_METADATA_DISCOVERY_MODE", None)
+        elif effective == P2P_HANDSHAKE:
+            os.environ.pop("MC_METADATA_DISCOVERY_MODE", None)
 
     @staticmethod
     def from_file(file_path: str) -> 'MooncakeConfig':
@@ -168,6 +215,9 @@ class MooncakeConfig:
             master_server_address=config.get("master_server_address"),
             enable_ssd_offload=bool(config.get("enable_ssd_offload", False)),
             ssd_offload_path=str(config.get("ssd_offload_path", "")),
+            metadata_discovery_mode=_normalize_discovery_mode(
+                config.get("metadata_discovery_mode")
+            ),
         )
 
     @staticmethod
@@ -196,5 +246,8 @@ class MooncakeConfig:
                 master_server_address=os.getenv("MOONCAKE_MASTER"),
                 enable_ssd_offload=os.getenv("MOONCAKE_OFFLOAD_ENABLED", "false").lower() in ("true", "1"),
                 ssd_offload_path=os.getenv("MOONCAKE_OFFLOAD_FILE_STORAGE_PATH", ""),
+                metadata_discovery_mode=_normalize_discovery_mode(
+                    os.getenv("MC_METADATA_DISCOVERY_MODE")
+                ),
             )
         return MooncakeConfig.from_file(config_file_path)

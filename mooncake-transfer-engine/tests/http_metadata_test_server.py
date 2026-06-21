@@ -21,12 +21,8 @@ class MetadataServer:
             return web.Response(body=value, status=200)
         if request.method == "PUT":
             body = await request.read()
-            if "rpc_meta" in key and key in self.store:
-                if self.store[key] == body:
-                    return web.Response(text="metadata unchanged", status=200)
-                return web.Response(
-                    text="Duplicate rpc_meta key not allowed", status=400
-                )
+            if "rpc_meta" in key and key in self.store and self.store[key] == body:
+                return web.Response(text="metadata unchanged", status=200)
             self.store[key] = body
             return web.Response(text="metadata updated", status=200)
         if request.method == "DELETE":

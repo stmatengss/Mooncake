@@ -122,7 +122,7 @@ void stopHttpMetadataServer(uint16_t port) {
     snprintf(cmd, sizeof(cmd),
              "pkill -f 'http_metadata_test_server.py %u' 2>/dev/null",
              static_cast<unsigned>(port));
-    std::system(cmd);
+    (void)std::system(cmd);
 }
 
 class HttpMetadataServerFixture : public ::testing::Test {
@@ -283,6 +283,38 @@ TEST_F(HttpMetadataServerFixture, HybridInitiatorUsesP2pFallbackForDirectEndpoin
     auto desc = hybrid_initiator.getSegmentDescByName(p2p_endpoint, true);
     ASSERT_NE(desc, nullptr);
     EXPECT_EQ(desc->name, "p2p_only_target");
+}
+
+TEST_F(HttpMetadataServerFixture, HybridRepublishRpcMetaAfterPortChange) {
+    const std::string hybrid_conn = base_url_ + "+P2PHANDSHAKE";
+    const std::string central_conn = base_url_;
+    const std::string hostname = "hybrid_rpc_host";
+
+    TransferMetadata hybrid_node(hybrid_conn);
+
+    TransferMetadata::RpcMetaDesc rpc_v1;
+    rpc_v1.ip_or_host_name = "127.0.0.1";
+    rpc_v1.rpc_port = pickAvailablePort(rpc_v1.sockfd);
+    ASSERT_GT(rpc_v1.rpc_port, 0);
+    ASSERT_EQ(hybrid_node.addRpcMetaEntry(hostname, rpc_v1), 0);
+
+    TransferMetadata central_reader(central_conn);
+    TransferMetadata::RpcMetaDesc published;
+    ASSERT_EQ(central_reader.getRpcMetaEntry(hostname, published), 0);
+    EXPECT_EQ(published.rpc_port, rpc_v1.rpc_port);
+
+    TransferMetadata::RpcMetaDesc rpc_v2;
+    rpc_v2.ip_or_host_name = "127.0.0.1";
+    rpc_v2.rpc_port = pickAvailablePort(rpc_v2.sockfd);
+    ASSERT_GT(rpc_v2.rpc_port, 0);
+    ASSERT_NE(rpc_v2.rpc_port, rpc_v1.rpc_port);
+    ASSERT_EQ(hybrid_node.addRpcMetaEntry(hostname, rpc_v2), 0);
+    ASSERT_EQ(hybrid_node.rePublishRpcMetaEntry(hostname), 0);
+
+    TransferMetadata central_reader2(central_conn);
+    TransferMetadata::RpcMetaDesc republished;
+    ASSERT_EQ(central_reader2.getRpcMetaEntry(hostname, republished), 0);
+    EXPECT_EQ(republished.rpc_port, rpc_v2.rpc_port);
 }
 
 TEST(MetadataHybridTest, PureP2pDoesNotPublishToCentral) {
