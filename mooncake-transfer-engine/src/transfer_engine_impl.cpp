@@ -27,6 +27,7 @@
 #include <sstream>
 #endif
 
+#include "metadata_discovery.h"
 #include "transfer_metadata_plugin.h"
 #include "transport/transport.h"
 #ifdef USE_BAREX
@@ -117,9 +118,14 @@ int TransferEngineImpl::init(const std::string& metadata_conn_string,
     local_server_name_ = local_server_name;
 #endif
 
-    if (getenv("MC_LEGACY_RPC_PORT_BINDING") ||
-        metadata_conn_string == P2PHANDSHAKE) {
-        rpc_binding_method = "legacy/P2P";
+    const auto parsed_metadata = parseMetadataConnString(metadata_conn_string);
+    const bool is_p2p_only =
+        parsed_metadata.discovery_mode == MetadataDiscoveryMode::P2P;
+    const bool is_hybrid =
+        parsed_metadata.discovery_mode == MetadataDiscoveryMode::Hybrid;
+
+    if (getenv("MC_LEGACY_RPC_PORT_BINDING") || is_p2p_only) {
+        rpc_binding_method = is_hybrid ? "hybrid metadata" : "legacy/P2P";
         desc.ip_or_host_name = host_name;
         desc.rpc_port = port;
         desc.sockfd = -1;
@@ -136,13 +142,15 @@ int TransferEngineImpl::init(const std::string& metadata_conn_string,
             tmp_fd = -1;
         }
 #endif
-        if (metadata_conn_string == P2PHANDSHAKE) {
-            rpc_binding_method = "P2P handshake";
+        if (is_p2p_only || is_hybrid) {
             desc.rpc_port = findAvailableTcpPort(desc.sockfd);
             if (desc.rpc_port == 0) {
-                LOG(ERROR) << "P2P: No valid port found for local TCP service.";
+                LOG(ERROR) << "P2P/Hybrid: No valid port found for local TCP service.";
                 return -1;
             }
+        }
+        if (is_p2p_only) {
+            rpc_binding_method = "P2P handshake";
 #if defined(USE_ASCEND)
             // The current version of Ascend Transport does not support IPv6,
             // but it will be added in a future release.

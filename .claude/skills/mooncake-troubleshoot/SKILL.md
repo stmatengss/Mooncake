@@ -57,6 +57,25 @@ echo "https_proxy: $https_proxy"
     unset http_proxy https_proxy
     ```
 
+**Hybrid metadata (Central + P2P fallback):**
+
+```bash
+echo "MC_METADATA_DISCOVERY_MODE: $MC_METADATA_DISCOVERY_MODE"
+echo "MC_METADATA_SERVER: $MC_METADATA_SERVER"
+
+# Hybrid via connection string suffix (recommended)
+export MC_METADATA_SERVER="http://<meta-host>:8080/metadata+P2PHANDSHAKE"
+
+# Or explicit mode with central storage URL
+export MC_METADATA_SERVER="http://<meta-host>:8080/metadata"
+export MC_METADATA_DISCOVERY_MODE=hybrid
+```
+
+**Common hybrid issues:**
+- Central lookup fails but P2P works → check `discovery.rpc_endpoint` in segment JSON and that the target RPC port is reachable
+- `openSegment(ip:port)` fails on hybrid initiator → expected fallback path; verify target P2P daemon is listening
+- Pure P2P nodes must use `MC_METADATA_SERVER=P2PHANDSHAKE`; they do not publish to Central
+
 ### 3. Environment Variables Check
 
 Verify critical environment variables are set correctly:
@@ -80,6 +99,7 @@ echo "MC_ENABLE_DEST_DEVICE_AFFINITY: $MC_ENABLE_DEST_DEVICE_AFFINITY"
 
 **Key variables:**
 - `MC_METADATA_SERVER` - Metadata server URL (required)
+- `MC_METADATA_DISCOVERY_MODE` - Metadata discovery mode: `central`, `p2p`, or `hybrid`
 - `MC_FORCE_TCP=true` - Force TCP for testing without RDMA
 - `MC_LOG_LEVEL=0` - Enable verbose logging (0=INFO, 1=WARNING, 2=ERROR)
 - `MC_YLT_LOG_LEVEL=debug` - yalantinglibs log level

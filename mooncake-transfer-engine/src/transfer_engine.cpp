@@ -224,6 +224,7 @@ std::shared_ptr<Topology> TransferEngine::getLocalTopology() {
 #else
 #include "transfer_engine.h"
 #include "transfer_engine_impl.h"
+#include "metadata_discovery.h"
 #include "tent/transfer_engine.h"
 #include "tent/common/config.h"
 
@@ -285,11 +286,15 @@ int TransferEngine::init(const std::string& metadata_conn_string,
         auto config = std::make_shared<mooncake::tent::Config>();
         if (!local_server_name.empty())
             config->set("local_segment_name", local_server_name);
-        if (metadata_conn_string == P2PHANDSHAKE) {
+        const auto parsed = parseMetadataConnString(metadata_conn_string);
+        if (parsed.discovery_mode == MetadataDiscoveryMode::P2P) {
             config->set("metadata_type", "p2p");
+        } else if (parsed.discovery_mode == MetadataDiscoveryMode::Hybrid) {
+            config->set("metadata_type", "hybrid");
+            config->set("metadata_servers", parsed.storage_conn_string);
         } else {
             auto [type, servers] =
-                parseConnectionStringInternal(metadata_conn_string);
+                parseConnectionStringInternal(parsed.storage_conn_string);
             if (!type.empty()) config->set("metadata_type", type);
             if (!servers.empty()) config->set("metadata_servers", servers);
         }

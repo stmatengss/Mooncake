@@ -314,6 +314,25 @@ export MOONCAKE_TE_META_DATA_SERVER="P2PHANDSHAKE"
 export MOONCAKE_LOCAL_HOSTNAME="node1"
 ```
 
+### Hybrid Metadata (Central + P2P)
+
+Use hybrid when some nodes register in a Central metadata server and others use dynamic P2P handshake:
+
+```bash
+export MC_METADATA_SERVER="http://10.0.0.1:8080/metadata+P2PHANDSHAKE"
+export MC_LOCAL_SERVER_NAME="node-b"
+# or: export MC_METADATA_DISCOVERY_MODE=hybrid
+```
+
+```json
+{
+    "metadata_server": "http://10.0.0.1:8080/metadata",
+    "metadata_discovery_mode": "hybrid"
+}
+```
+
+See [Hybrid Metadata Deployment](../deployment/hybrid-metadata.md).
+
 ## Choosing the Right Protocol
 
 | Scenario | Recommended Protocol | Notes |

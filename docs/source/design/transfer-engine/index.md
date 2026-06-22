@@ -354,6 +354,14 @@ kunpeng_ub_transport
 sunrise_link_transport
 :::
 
+## Metadata Discovery
+
+:::{toctree}
+:maxdepth: 1
+
+metadata-hybrid-design
+:::
+
 ## Benchmark and Tuning Guide
 
 :::{toctree}

@@ -121,9 +121,10 @@ class MooncakeStoreService:
                 )
 
                 self.store = MooncakeDistributedStore()
+                self.config.apply_transfer_engine_env()
                 ret = self.store.setup(
                     self.config.local_hostname,
-                    self.config.metadata_server,
+                    self.config.effective_metadata_server(),
                     self.config.global_segment_size,
                     self.config.local_buffer_size,
                     self.config.protocol,

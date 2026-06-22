@@ -7,6 +7,8 @@ from mooncake.mooncake_config import (
     MooncakeConfig,
     DEFAULT_GLOBAL_SEGMENT_SIZE,
     DEFAULT_LOCAL_BUFFER_SIZE,
+    P2P_HANDSHAKE,
+    P2P_HANDSHAKE_SUFFIX,
     _parse_segment_size,
 )
 
@@ -129,6 +131,75 @@ class TestMooncakeConfig(unittest.TestCase):
             del os.environ['MOONCAKE_DEVICE']
             del os.environ['MOONCAKE_OFFLOAD_ENABLED']
             del os.environ['MOONCAKE_OFFLOAD_FILE_STORAGE_PATH']
+
+    def test_invalid_discovery_mode(self):
+        invalid_config = self.valid_config.copy()
+        invalid_config["metadata_discovery_mode"] = "invalid"
+        self.write_config(invalid_config)
+        with self.assertRaises(ValueError):
+            MooncakeConfig.from_file(self.config_file)
+
+    def test_effective_metadata_server_hybrid_suffix(self):
+        config = MooncakeConfig(
+            local_hostname="localhost",
+            metadata_server="http://127.0.0.1:8080/metadata",
+            global_segment_size=1024,
+            local_buffer_size=1024,
+            protocol="tcp",
+            device_name="",
+            master_server_address="localhost:8081",
+            metadata_discovery_mode="hybrid",
+        )
+        self.assertEqual(
+            config.effective_metadata_server(),
+            "http://127.0.0.1:8080/metadata" + P2P_HANDSHAKE_SUFFIX,
+        )
+
+    def test_effective_metadata_server_p2p(self):
+        config = MooncakeConfig(
+            local_hostname="localhost",
+            metadata_server="http://127.0.0.1:8080/metadata",
+            global_segment_size=1024,
+            local_buffer_size=1024,
+            protocol="tcp",
+            device_name="",
+            master_server_address="localhost:8081",
+            metadata_discovery_mode="p2p",
+        )
+        self.assertEqual(config.effective_metadata_server(), P2P_HANDSHAKE)
+
+    def test_apply_transfer_engine_env(self):
+        config = MooncakeConfig(
+            local_hostname="localhost",
+            metadata_server="http://127.0.0.1:8080/metadata",
+            global_segment_size=1024,
+            local_buffer_size=1024,
+            protocol="tcp",
+            device_name="",
+            master_server_address="localhost:8081",
+            metadata_discovery_mode="hybrid",
+        )
+        try:
+            config.apply_transfer_engine_env()
+            self.assertEqual(
+                os.environ["MC_METADATA_SERVER"],
+                "http://127.0.0.1:8080/metadata" + P2P_HANDSHAKE_SUFFIX,
+            )
+            self.assertEqual(os.environ["MC_METADATA_DISCOVERY_MODE"], "hybrid")
+        finally:
+            os.environ.pop("MC_METADATA_DISCOVERY_MODE", None)
+
+    def test_load_discovery_mode_from_env(self):
+        os.environ["MOONCAKE_MASTER"] = self.valid_config["master_server_address"]
+        os.environ["MOONCAKE_TE_META_DATA_SERVER"] = self.valid_config["metadata_server"]
+        os.environ["MC_METADATA_DISCOVERY_MODE"] = "hybrid"
+        try:
+            config = MooncakeConfig.load_from_env()
+            self.assertEqual(config.metadata_discovery_mode, "hybrid")
+        finally:
+            del os.environ["MOONCAKE_MASTER"]
+            del os.environ["MOONCAKE_TE_META_DATA_SERVER"]
+            del os.environ["MC_METADATA_DISCOVERY_MODE"]
 
     def test_load_from_env_missing(self):
         """Test loading configuration from environment variable when not set"""

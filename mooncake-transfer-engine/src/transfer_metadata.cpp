@@ -130,7 +130,11 @@ struct TransferHandshakeUtil {
 TransferMetadata::TransferMetadata(const std::string &conn_string) {
     next_segment_id_.store(1);
 
-    std::string protocol = extractProtocolFromConnString(conn_string);
+    auto parsed = parseMetadataConnString(conn_string);
+    discovery_mode_ = parsed.discovery_mode;
+    const std::string &storage_conn = parsed.storage_conn_string;
+
+    std::string protocol = extractProtocolFromConnString(storage_conn);
     std::string custom_key;
 
     const char *custom_prefix = std::getenv("MC_METADATA_CLUSTER_ID");
@@ -146,21 +150,27 @@ TransferMetadata::TransferMetadata(const std::string &conn_string) {
     common_key_prefix_ = "mooncake/" + custom_key;
     rpc_meta_prefix_ = common_key_prefix_ + "rpc_meta/";
 
-    handshake_plugin_ = HandShakePlugin::Create(conn_string);
+    handshake_plugin_ = HandShakePlugin::Create(
+        discovery_mode_ == MetadataDiscoveryMode::P2P ? conn_string
+                                                      : storage_conn);
     if (!handshake_plugin_) {
         LOG(ERROR)
             << "Unable to create metadata handshake plugin with conn string: "
             << conn_string;
     }
-    if (conn_string == P2PHANDSHAKE) {
-        p2p_handshake_mode_ = true;
+
+    LOG(INFO) << "Metadata discovery mode: "
+              << metadataDiscoveryModeToString(discovery_mode_);
+
+    if (discovery_mode_ == MetadataDiscoveryMode::P2P) {
         return;
     }
-    storage_plugin_ = MetadataStoragePlugin::Create(conn_string);
+
+    storage_plugin_ = MetadataStoragePlugin::Create(storage_conn);
     if (!storage_plugin_) {
         LOG(ERROR)
             << "Unable to create metadata storage plugin with conn string "
-            << conn_string;
+            << storage_conn;
     }
 }
 
@@ -321,6 +331,19 @@ int TransferMetadata::encodeSegmentDesc(const SegmentDesc &desc,
     if (!desc.rdma_server_name.empty()) {
         segmentJSON["rdma_server_name"] = desc.rdma_server_name;
     }
+    if (!desc.discovery.mode.empty() || !desc.discovery.rpc_endpoint.empty()) {
+        Json::Value discoveryJSON;
+        if (!desc.discovery.mode.empty()) {
+            discoveryJSON["mode"] = desc.discovery.mode;
+        }
+        if (!desc.discovery.rpc_endpoint.empty()) {
+            discoveryJSON["rpc_endpoint"] = desc.discovery.rpc_endpoint;
+        }
+        if (!desc.discovery.prefer.empty()) {
+            discoveryJSON["prefer"] = desc.discovery.prefer;
+        }
+        segmentJSON["discovery"] = discoveryJSON;
+    }
 
     if (segmentJSON["protocol"] == "rdma" ||
         segmentJSON["protocol"] == "barex" ||
@@ -465,12 +488,17 @@ int TransferMetadata::encodeSegmentDesc(const SegmentDesc &desc,
 
 int TransferMetadata::updateSegmentDesc(const std::string &segment_name,
                                         const SegmentDesc &desc) {
-    if (p2p_handshake_mode_) {
+    if (discovery_mode_ == MetadataDiscoveryMode::P2P) {
         return 0;
     }
 
+    SegmentDesc publish_desc = desc;
+    if (discovery_mode_ == MetadataDiscoveryMode::Hybrid) {
+        fillDiscoveryFields(publish_desc);
+    }
+
     Json::Value segmentJSON;
-    int ret = encodeSegmentDesc(desc, segmentJSON);
+    int ret = encodeSegmentDesc(publish_desc, segmentJSON);
     if (ret) {
         return ret;
     }
@@ -485,7 +513,7 @@ int TransferMetadata::updateSegmentDesc(const std::string &segment_name,
 }
 
 int TransferMetadata::removeSegmentDesc(const std::string &segment_name) {
-    if (p2p_handshake_mode_) {
+    if (discovery_mode_ == MetadataDiscoveryMode::P2P) {
         RWSpinlock::WriteGuard guard(segment_lock_);
         auto iter = segment_name_to_id_map_.find(segment_name);
         if (iter != segment_name_to_id_map_.end()) {
@@ -662,6 +690,20 @@ TransferMetadata::decodeSegmentDesc(Json::Value &segmentJSON,
         desc->timestamp = segmentJSON["timestamp"].asString();
     if (segmentJSON.isMember("rdma_server_name"))
         desc->rdma_server_name = segmentJSON["rdma_server_name"].asString();
+    if (segmentJSON.isMember("discovery") &&
+        segmentJSON["discovery"].isObject()) {
+        const auto &discoveryJSON = segmentJSON["discovery"];
+        if (discoveryJSON.isMember("mode")) {
+            desc->discovery.mode = discoveryJSON["mode"].asString();
+        }
+        if (discoveryJSON.isMember("rpc_endpoint")) {
+            desc->discovery.rpc_endpoint =
+                discoveryJSON["rpc_endpoint"].asString();
+        }
+        if (discoveryJSON.isMember("prefer")) {
+            desc->discovery.prefer = discoveryJSON["prefer"].asString();
+        }
+    }
 
     if (desc->protocol == "rdma" || desc->protocol == "barex" ||
         desc->protocol == "efa") {
@@ -857,9 +899,20 @@ TransferMetadata::decodeSegmentDesc(Json::Value &segmentJSON,
 
 int TransferMetadata::receivePeerMetadata(const Json::Value &peer_json,
                                           Json::Value &local_json) {
-    // TODO: save to local cache
-    // auto peer_desc = decodeSegmentDesc(peer_json,
-    // peer_json["name"].asString());
+    if (peer_json.isMember("name")) {
+        Json::Value peer_copy = peer_json;
+        auto peer_name = peer_json["name"].asString();
+        auto peer_desc = decodeSegmentDesc(peer_copy, peer_name);
+        if (peer_desc) {
+            RWSpinlock::WriteGuard guard(segment_lock_);
+            if (!segment_name_to_id_map_.count(peer_name)) {
+                SegmentID peer_id = next_segment_id_.fetch_add(1);
+                segment_id_to_desc_map_[peer_id] = peer_desc;
+                segment_name_to_id_map_[peer_name] = peer_id;
+            }
+        }
+    }
+
     std::shared_ptr<SegmentDesc> local_desc;
     {
         RWSpinlock::ReadGuard guard(segment_lock_);
@@ -877,59 +930,46 @@ int TransferMetadata::receivePeerMetadata(const Json::Value &peer_json,
 std::shared_ptr<TransferMetadata::SegmentDesc> TransferMetadata::getSegmentDesc(
     const std::string &segment_name) {
     Json::Value peer_json;
+    std::string p2p_endpoint;
+    bool have_json = false;
 
-    if (p2p_handshake_mode_) {
-        auto [ip, port] = parseHostNameWithPort(segment_name);
-        Json::Value local_json;
-        std::shared_ptr<SegmentDesc> desc;
-        {
-            RWSpinlock::ReadGuard guard(segment_lock_);
-            auto it = segment_id_to_desc_map_.find(LOCAL_SEGMENT_ID);
-            if (it == segment_id_to_desc_map_.end() || !it->second) {
-                LOG(ERROR) << "Local segment descriptor not found";
+    if (discovery_mode_ == MetadataDiscoveryMode::P2P) {
+        if (!fetchSegmentDescViaP2P(segment_name, peer_json)) {
+            return nullptr;
+        }
+        have_json = true;
+    } else if (discovery_mode_ == MetadataDiscoveryMode::Central) {
+        if (!getSegmentDescFromCentral(segment_name, peer_json, p2p_endpoint)) {
+            return nullptr;
+        }
+        have_json = true;
+    } else {
+        have_json =
+            getSegmentDescFromCentral(segment_name, peer_json, p2p_endpoint);
+        if (!have_json) {
+            if (!isDirectConnectEndpoint(segment_name)) {
+                LOG(WARNING) << "Hybrid metadata: central lookup failed for "
+                             << segment_name
+                             << ", and no direct P2P endpoint in segment name";
                 return nullptr;
             }
-            desc = it->second;
-        }
-        int ret = encodeSegmentDesc(*desc.get(), local_json);
-        if (ret) {
-            return nullptr;
-        }
-        ret = handshake_plugin_->exchangeMetadata(ip, port, local_json,
-                                                  peer_json);
-        if (ret) {
-            return nullptr;
-        }
-    } else {
-        if (!storage_plugin_->get(getFullMetadataKey(segment_name),
-                                  peer_json)) {
-            LOG(WARNING) << "Failed to retrieve segment descriptor, name "
-                         << segment_name;
-            return nullptr;
+            LOG(INFO) << "Hybrid metadata: falling back to P2P exchange for "
+                      << segment_name;
+            if (!fetchSegmentDescViaP2P(segment_name, peer_json)) {
+                return nullptr;
+            }
+            have_json = true;
         }
     }
 
-    auto result = decodeSegmentDesc(peer_json, segment_name);
+    if (!have_json) {
+        return nullptr;
+    }
 
-    // In P2P mode with dual-NIC setups (MC_RDMA_BIND_ADDRESS), the peer's
-    // segment descriptor may contain an rdma_server_name that differs from
-    // the TCP-routable segment_name. Cache the mapping so subsequent
-    // sendHandshake() calls can resolve the peer's TCP address from the
-    // RDMA server name extracted from NIC paths.
-    if (p2p_handshake_mode_ && result && !result->rdma_server_name.empty() &&
-        result->rdma_server_name != segment_name) {
-        auto [tcp_ip, tcp_port] = parseHostNameWithPort(segment_name);
-        RWSpinlock::WriteGuard guard(rpc_meta_lock_);
-        if (!rpc_meta_map_.count(result->rdma_server_name)) {
-            RpcMetaDesc meta;
-            meta.ip_or_host_name = tcp_ip;
-            meta.rpc_port = tcp_port;
-            meta.sockfd = -1;
-            rpc_meta_map_[result->rdma_server_name] = meta;
-            LOG(INFO) << "P2P: cached RDMA->TCP mapping: "
-                      << result->rdma_server_name << " -> " << tcp_ip << ":"
-                      << tcp_port;
-        }
+    auto result = decodeSegmentDesc(peer_json, segment_name);
+    if (result) {
+        cacheRpcMetaFromDiscovery(*result, segment_name);
+        cacheP2pNicPathMapping(result, segment_name);
     }
 
     return result;
@@ -1139,40 +1179,27 @@ int TransferMetadata::addRpcMetaEntry(const std::string &server_name,
                                       RpcMetaDesc &desc) {
     local_rpc_meta_ = desc;
 
-    if (p2p_handshake_mode_) {
-        handshake_plugin_->registerOnMetadataCallBack(
-            [this](const Json::Value &peer, Json::Value &local) -> int {
-                return receivePeerMetadata(peer, local);
-            });
-        handshake_plugin_->registerOnNotifyCallBack(
-            [this](const Json::Value &peer, Json::Value &local) -> int {
-                return receivePeerNotify(peer, local);
-            });
-        handshake_plugin_->registerOnProbeCallBack(
-            [this](const Json::Value &peer, Json::Value &local) -> int {
-                return receivePeerProbe(peer, local);
-            });
-
-        int rc = handshake_plugin_->startDaemon(desc.rpc_port, desc.sockfd);
-        if (rc != 0) {
-            return rc;
+    if (usesP2pExchange()) {
+        int ret = startP2pHandshakeDaemon(desc);
+        if (ret) {
+            return ret;
         }
-
-        return 0;
     }
 
-    Json::Value rpcMetaJSON;
-    rpcMetaJSON["ip_or_host_name"] = desc.ip_or_host_name;
-    rpcMetaJSON["rpc_port"] = static_cast<Json::UInt>(desc.rpc_port);
-    if (!storage_plugin_->set(rpc_meta_prefix_ + server_name, rpcMetaJSON)) {
-        LOG(ERROR) << "Failed to set location of " << server_name;
-        return ERR_METADATA;
+    if (shouldPublishToCentral()) {
+        Json::Value rpcMetaJSON;
+        rpcMetaJSON["ip_or_host_name"] = desc.ip_or_host_name;
+        rpcMetaJSON["rpc_port"] = static_cast<Json::UInt>(desc.rpc_port);
+        if (!storage_plugin_->set(rpc_meta_prefix_ + server_name, rpcMetaJSON)) {
+            LOG(ERROR) << "Failed to set location of " << server_name;
+            return ERR_METADATA;
+        }
     }
     return 0;
 }
 
 int TransferMetadata::removeRpcMetaEntry(const std::string &server_name) {
-    if (p2p_handshake_mode_) {
+    if (discovery_mode_ == MetadataDiscoveryMode::P2P) {
         return 0;
     }
     if (!storage_plugin_->remove(rpc_meta_prefix_ + server_name)) {
@@ -1183,7 +1210,7 @@ int TransferMetadata::removeRpcMetaEntry(const std::string &server_name) {
 }
 
 int TransferMetadata::rePublishRpcMetaEntry(const std::string &server_name) {
-    if (p2p_handshake_mode_) {
+    if (discovery_mode_ == MetadataDiscoveryMode::P2P) {
         return 0;
     }
     const std::string full_key = rpc_meta_prefix_ + server_name;
@@ -1218,23 +1245,30 @@ int TransferMetadata::getRpcMetaEntry(const std::string &server_name,
             return 0;
         }
     }
+
     RWSpinlock::WriteGuard guard(rpc_meta_lock_);
-    if (p2p_handshake_mode_) {
+    if (rpc_meta_map_.count(server_name)) {
+        desc = rpc_meta_map_[server_name];
+        return 0;
+    }
+
+    if (getRpcMetaFromCentral(server_name, desc)) {
+        rpc_meta_map_[server_name] = desc;
+        return 0;
+    }
+
+    if (discovery_mode_ != MetadataDiscoveryMode::Central &&
+        isDirectConnectEndpoint(server_name)) {
         auto [ip, port] = parseHostNameWithPort(server_name);
         desc.ip_or_host_name = ip;
         desc.rpc_port = port;
-    } else {
-        Json::Value rpcMetaJSON;
-        if (!storage_plugin_->get(rpc_meta_prefix_ + server_name,
-                                  rpcMetaJSON)) {
-            LOG(ERROR) << "Failed to find location of " << server_name;
-            return ERR_METADATA;
-        }
-        desc.ip_or_host_name = rpcMetaJSON["ip_or_host_name"].asString();
-        desc.rpc_port = (uint16_t)rpcMetaJSON["rpc_port"].asUInt();
+        desc.sockfd = -1;
+        rpc_meta_map_[server_name] = desc;
+        return 0;
     }
-    rpc_meta_map_[server_name] = desc;
-    return 0;
+
+    LOG(ERROR) << "Failed to find location of " << server_name;
+    return ERR_METADATA;
 }
 
 int TransferMetadata::startHandshakeDaemon(
@@ -1319,6 +1353,155 @@ int TransferMetadata::sendProbe(const std::string &peer_server_name) {
                                            peer_location.rpc_port, local, peer);
     if (ret) return ret;
     return 0;
+}
+
+bool TransferMetadata::usesCentralStorage() const {
+    return discovery_mode_ != MetadataDiscoveryMode::P2P &&
+           storage_plugin_ != nullptr;
+}
+
+bool TransferMetadata::usesP2pExchange() const {
+    return discovery_mode_ != MetadataDiscoveryMode::Central;
+}
+
+bool TransferMetadata::shouldPublishToCentral() const {
+    return usesCentralStorage();
+}
+
+void TransferMetadata::fillDiscoveryFields(SegmentDesc &desc) const {
+    desc.discovery.mode = metadataDiscoveryModeToString(discovery_mode_);
+    if (!local_rpc_meta_.ip_or_host_name.empty() &&
+        local_rpc_meta_.rpc_port != 0) {
+        desc.discovery.rpc_endpoint =
+            buildHostNameWithPort(local_rpc_meta_.ip_or_host_name,
+                                  local_rpc_meta_.rpc_port);
+    }
+    if (desc.discovery.prefer.empty()) {
+        desc.discovery.prefer = "central";
+    }
+}
+
+void TransferMetadata::cacheRpcMetaFromDiscovery(
+    const SegmentDesc &desc, const std::string &segment_name) {
+    std::string endpoint = desc.discovery.rpc_endpoint;
+    if (endpoint.empty()) {
+        return;
+    }
+
+    auto [ip, port] = parseHostNameWithPort(endpoint);
+    RpcMetaDesc meta;
+    meta.ip_or_host_name = ip;
+    meta.rpc_port = port;
+    meta.sockfd = -1;
+
+    RWSpinlock::WriteGuard guard(rpc_meta_lock_);
+    rpc_meta_map_[segment_name] = meta;
+    if (!desc.name.empty() && desc.name != segment_name) {
+        rpc_meta_map_[desc.name] = meta;
+    }
+    if (!desc.rdma_server_name.empty()) {
+        rpc_meta_map_[desc.rdma_server_name] = meta;
+    }
+}
+
+void TransferMetadata::cacheP2pNicPathMapping(
+    const std::shared_ptr<SegmentDesc> &result, const std::string &segment_name) {
+    if (!usesP2pExchange() || !result || result->rdma_server_name.empty() ||
+        result->rdma_server_name == segment_name) {
+        return;
+    }
+
+    if (!isDirectConnectEndpoint(segment_name)) {
+        return;
+    }
+
+    auto [tcp_ip, tcp_port] = parseHostNameWithPort(segment_name);
+    RWSpinlock::WriteGuard guard(rpc_meta_lock_);
+    if (!rpc_meta_map_.count(result->rdma_server_name)) {
+        RpcMetaDesc meta;
+        meta.ip_or_host_name = tcp_ip;
+        meta.rpc_port = tcp_port;
+        meta.sockfd = -1;
+        rpc_meta_map_[result->rdma_server_name] = meta;
+        LOG(INFO) << "P2P: cached RDMA->TCP mapping: "
+                  << result->rdma_server_name << " -> " << tcp_ip << ":"
+                  << tcp_port;
+    }
+}
+
+bool TransferMetadata::fetchSegmentDescViaP2P(const std::string &endpoint,
+                                              Json::Value &peer_json) {
+    auto [ip, port] = parseHostNameWithPort(endpoint);
+    Json::Value local_json;
+    std::shared_ptr<SegmentDesc> desc;
+    {
+        RWSpinlock::ReadGuard guard(segment_lock_);
+        auto it = segment_id_to_desc_map_.find(LOCAL_SEGMENT_ID);
+        if (it == segment_id_to_desc_map_.end() || !it->second) {
+            LOG(ERROR) << "Local segment descriptor not found";
+            return false;
+        }
+        desc = it->second;
+    }
+    int ret = encodeSegmentDesc(*desc.get(), local_json);
+    if (ret) {
+        return false;
+    }
+    ret = handshake_plugin_->exchangeMetadata(ip, port, local_json, peer_json);
+    return ret == 0;
+}
+
+bool TransferMetadata::getSegmentDescFromCentral(
+    const std::string &segment_name, Json::Value &peer_json,
+    std::string &p2p_endpoint) {
+    if (!usesCentralStorage()) {
+        return false;
+    }
+    if (!storage_plugin_->get(getFullMetadataKey(segment_name), peer_json)) {
+        LOG(WARNING) << "Failed to retrieve segment descriptor, name "
+                     << segment_name;
+        return false;
+    }
+    if (peer_json.isMember("discovery") && peer_json["discovery"].isObject() &&
+        peer_json["discovery"].isMember("rpc_endpoint")) {
+        p2p_endpoint = peer_json["discovery"]["rpc_endpoint"].asString();
+    }
+    return true;
+}
+
+bool TransferMetadata::getRpcMetaFromCentral(const std::string &server_name,
+                                             RpcMetaDesc &desc) {
+    if (!usesCentralStorage()) {
+        return false;
+    }
+    Json::Value rpcMetaJSON;
+    if (!storage_plugin_->get(rpc_meta_prefix_ + server_name, rpcMetaJSON)) {
+        return false;
+    }
+    desc.ip_or_host_name = rpcMetaJSON["ip_or_host_name"].asString();
+    desc.rpc_port = static_cast<uint16_t>(rpcMetaJSON["rpc_port"].asUInt());
+    desc.sockfd = -1;
+    return true;
+}
+
+void TransferMetadata::registerP2pHandshakeCallbacks() {
+    handshake_plugin_->registerOnMetadataCallBack(
+        [this](const Json::Value &peer, Json::Value &local) -> int {
+            return receivePeerMetadata(peer, local);
+        });
+    handshake_plugin_->registerOnNotifyCallBack(
+        [this](const Json::Value &peer, Json::Value &local) -> int {
+            return receivePeerNotify(peer, local);
+        });
+    handshake_plugin_->registerOnProbeCallBack(
+        [this](const Json::Value &peer, Json::Value &local) -> int {
+            return receivePeerProbe(peer, local);
+        });
+}
+
+int TransferMetadata::startP2pHandshakeDaemon(RpcMetaDesc &desc) {
+    registerP2pHandshakeCallbacks();
+    return handshake_plugin_->startDaemon(desc.rpc_port, desc.sockfd);
 }
 
 }  // namespace mooncake

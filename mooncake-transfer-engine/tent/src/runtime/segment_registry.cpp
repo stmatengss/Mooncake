@@ -18,11 +18,43 @@
 #include <set>
 
 #include "tent/common/status.h"
+#include "tent/common/utils/ip.h"
 #include "tent/common/utils/os.h"
 #include "tent/runtime/control_plane.h"
 
 namespace mooncake {
 namespace tent {
+
+namespace {
+
+bool isDirectConnectEndpoint(const std::string& name) {
+    if (name.empty()) {
+        return false;
+    }
+    const auto colon = name.rfind(':');
+    if (colon == std::string::npos || colon == 0 || colon + 1 >= name.size()) {
+        return false;
+    }
+    auto [host, port] = parseHostNameWithPort(name, 0);
+    return !host.empty() && port != 0;
+}
+
+std::pair<std::string, std::string> parseStorageConnString(
+    const std::string& storage_conn_string) {
+    std::pair<std::string, std::string> result{"etcd", storage_conn_string};
+    const std::size_t pos = storage_conn_string.find("://");
+    if (pos != std::string::npos) {
+        result.first = storage_conn_string.substr(0, pos);
+        if (result.first == "http" || result.first == "https") {
+            result.second = storage_conn_string;
+        } else {
+            result.second = storage_conn_string.substr(pos + 3);
+        }
+    }
+    return result;
+}
+
+}  // namespace
 
 static inline std::string getFullMetadataKey(const std::string &segment_name) {
     const static std::string kCommonKeyPrefix = "mooncake/tent/";
@@ -78,6 +110,48 @@ Status PeerSegmentRegistry::getSegmentDesc(SegmentDescRef &desc,
     desc = std::make_shared<SegmentDesc>();
     *desc = json::parse(response).get<SegmentDesc>();
     return Status::OK();
+}
+
+HybridSegmentRegistry::HybridSegmentRegistry(
+    const std::string &storage_conn_string) {
+    auto [type, servers] = parseStorageConnString(storage_conn_string);
+    central_ = std::make_unique<CentralSegmentRegistry>(type, servers);
+}
+
+Status HybridSegmentRegistry::getSegmentDesc(SegmentDescRef &desc,
+                                             const std::string &segment_name) {
+    auto status = central_->getSegmentDesc(desc, segment_name);
+    if (status.ok()) {
+        return status;
+    }
+    if (!isDirectConnectEndpoint(segment_name)) {
+        return status;
+    }
+    LOG(INFO) << "Hybrid metadata: falling back to P2P segment lookup for "
+              << segment_name;
+    PeerSegmentRegistry peer;
+    return peer.getSegmentDesc(desc, segment_name);
+}
+
+Status HybridSegmentRegistry::putSegmentDesc(SegmentDescRef &desc) {
+    if (desc) {
+        if (desc->discovery.mode.empty()) {
+            desc->discovery.mode = "hybrid";
+        }
+        if (desc->discovery.rpc_endpoint.empty() &&
+            !desc->rpc_server_addr.empty()) {
+            desc->discovery.rpc_endpoint = desc->rpc_server_addr;
+        }
+        if (desc->discovery.prefer.empty()) {
+            desc->discovery.prefer = "central";
+        }
+    }
+    return central_->putSegmentDesc(desc);
+}
+
+Status HybridSegmentRegistry::deleteSegmentDesc(
+    const std::string &segment_name) {
+    return central_->deleteSegmentDesc(segment_name);
 }
 
 }  // namespace tent
