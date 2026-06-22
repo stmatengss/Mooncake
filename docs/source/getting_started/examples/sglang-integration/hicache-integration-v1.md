@@ -237,6 +237,21 @@ Note that, for `--hicache-mem-layout {layer_first,page_first,page_first_direct}`
 
 Distributed deployment of Mooncake is straightforward. Similar to the single-node setup, start one `metadata service` and one `master service` for this cluster. Then start a `store service` on each server.
 
+**Multi-node runtime attach (SGLang HiCache L3):**
+
+When HiCache is enabled at startup but Mooncake L3 is attached later via `PUT /hicache/storage-backend`, the attach payload is broadcast to every rank. Do **not** rely on a single shared `local_hostname` in that payload for multi-node deployments.
+
+Instead, on each node before launching SGLang:
+
+```bash
+export MOONCAKE_LOCAL_HOSTNAME="<this-node-rdma-ip>"
+# or: export LOCAL_HOSTNAME="<this-node-rdma-ip>"
+```
+
+Then attach Mooncake without `local_hostname` in `hicache_storage_backend_extra_config_json` (other fields such as `master_server_address` can remain shared). Each rank resolves its own hostname from the process environment.
+
+See [sgl-project/sglang#23457](https://github.com/sgl-project/sglang/issues/23457) for background. Upstream SGLang should resolve `local_hostname` from `MOONCAKE_LOCAL_HOSTNAME` / `LOCAL_HOSTNAME` when it is omitted from runtime attach extra config.
+
 Mooncake also supports high availability mode. This mode enhances fault tolerance by running the `master service` as a cluster of multiple master nodes coordinated through an `etcd` cluster. The master nodes use `etcd` to elect a leader, which is responsible for handling client requests. For more details about how to deploy in this mode, please refer to our [documents](https://kvcache-ai.github.io/Mooncake/).
 
 ### Deployment with Dummy Client (Experimental)
