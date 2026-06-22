@@ -540,7 +540,7 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 - [x] 实现 `HybridSegmentRegistry`
 - [x] `ControlService` 支持 `metadata_type=hybrid`
 - [x] `discovery` 字段与 `rpc_server_addr` 协同
-- [ ] TENT e2e 测试
+- [x] TENT 单元测试（`tent_hybrid_segment_registry_test.cpp`）
 
 **验收**：`MC_USE_TENT=1` 下混合场景与 Legacy 行为一致。
 
@@ -549,7 +549,7 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 **范围**：Store、Python、文档
 
 - [x] `mooncake_config.py` / Store client 配置透传（`metadata_discovery_mode`、`apply_transfer_engine_env`）
-- [ ] 部署文档更新
+- [x] 部署文档更新（`docs/source/deployment/hybrid-metadata.md`）
 - [x] `mooncake-troubleshoot` skill 增加 hybrid 诊断
 
 ### Phase 5：健壮性
@@ -583,6 +583,14 @@ Hybrid metadata: central lookup failed for 'nodeB', falling back to P2P exchange
 | `CentralInitiatorReadsHybridTargetByHostname` | Central initiator 读取 hybrid target |
 | `HybridInitiatorUsesP2pFallbackForDirectEndpoint` | Hybrid initiator 对纯 P2P endpoint fallback |
 | `HybridRepublishRpcMetaAfterPortChange` | RPC 端口变化后 re-publish 到 Central |
+
+TENT（`tent_hybrid_segment_registry_test.cpp`，需 `USE_TENT=ON USE_HTTP=ON`）：
+
+| 用例 | 描述 |
+|------|------|
+| `PublishAndCentralLookup` | HybridSegmentRegistry 双注册与 Central 查询 |
+| `CentralMissWithoutDirectEndpointFails` | 非 `ip:port` 名称不触发 P2P fallback |
+| `TransferEngineHybridInitPublishesToCentral` | TENT 引擎 hybrid 初始化发布 segment |
 
 待补充：
 

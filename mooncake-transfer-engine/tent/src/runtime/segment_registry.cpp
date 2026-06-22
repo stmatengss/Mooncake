@@ -17,8 +17,8 @@
 #include <cassert>
 #include <set>
 
-#include "metadata_discovery.h"
 #include "tent/common/status.h"
+#include "tent/common/utils/ip.h"
 #include "tent/common/utils/os.h"
 #include "tent/runtime/control_plane.h"
 
@@ -27,13 +27,29 @@ namespace tent {
 
 namespace {
 
+bool isDirectConnectEndpoint(const std::string& name) {
+    if (name.empty()) {
+        return false;
+    }
+    const auto colon = name.rfind(':');
+    if (colon == std::string::npos || colon == 0 || colon + 1 >= name.size()) {
+        return false;
+    }
+    auto [host, port] = parseHostNameWithPort(name, 0);
+    return !host.empty() && port != 0;
+}
+
 std::pair<std::string, std::string> parseStorageConnString(
     const std::string& storage_conn_string) {
     std::pair<std::string, std::string> result{"etcd", storage_conn_string};
     const std::size_t pos = storage_conn_string.find("://");
     if (pos != std::string::npos) {
         result.first = storage_conn_string.substr(0, pos);
-        result.second = storage_conn_string.substr(pos + 3);
+        if (result.first == "http" || result.first == "https") {
+            result.second = storage_conn_string;
+        } else {
+            result.second = storage_conn_string.substr(pos + 3);
+        }
     }
     return result;
 }

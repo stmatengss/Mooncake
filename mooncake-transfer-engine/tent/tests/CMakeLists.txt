@@ -154,3 +154,19 @@ target_include_directories(tent_progress_worker_test
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 add_test(NAME tent_progress_worker_test
          COMMAND tent_progress_worker_test)
+
+if(USE_HTTP)
+  add_executable(tent_hybrid_segment_registry_test
+                 hybrid_segment_registry_test.cpp)
+  target_link_libraries(tent_hybrid_segment_registry_test
+                        PRIVATE gtest gtest_main tent_link_group)
+  if(TARGET asio_shared)
+    target_link_libraries(tent_hybrid_segment_registry_test PRIVATE asio_shared)
+  endif()
+  target_include_directories(
+    tent_hybrid_segment_registry_test
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include
+            ${CMAKE_CURRENT_SOURCE_DIR}/../../include)
+  add_test(NAME tent_hybrid_segment_registry_test
+           COMMAND tent_hybrid_segment_registry_test)
+endif()

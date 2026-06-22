@@ -662,6 +662,10 @@ std::shared_ptr<mooncake::tent::Config> createTentConfig() {
     } else if (FLAGS_metadata_server == P2PHANDSHAKE) {
         metadata_type = "p2p";
         metadata_servers = P2PHANDSHAKE;
+    } else if (FLAGS_metadata_server.find("+P2PHANDSHAKE") != std::string::npos) {
+        metadata_type = "hybrid";
+        metadata_servers = FLAGS_metadata_server.substr(
+            0, FLAGS_metadata_server.find("+P2PHANDSHAKE"));
     } else if (!FLAGS_metadata_server.empty()) {
         // Default to etcd for backward compatibility
         metadata_type = "etcd";
