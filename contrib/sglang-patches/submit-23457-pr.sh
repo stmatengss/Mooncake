@@ -15,7 +15,7 @@ git clone --branch "$MOONCAKE_BRANCH" --depth 1 https://github.com/stmatengss/Mo
 git clone --depth 1 https://github.com/sgl-project/sglang.git sglang
 cd sglang
 git checkout -b "$BRANCH"
-git am ../mooncake/contrib/sglang-patches/23457-fix-mooncake-local-hostname.patch
+git am ../mooncake/contrib/sglang-patches/23457/23457-fix-mooncake-local-hostname.patch
 
 if git remote get-url fork >/dev/null 2>&1; then
   git remote set-url fork "https://github.com/${FORK}.git"

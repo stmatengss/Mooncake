@@ -1,24 +1,25 @@
 # SGLang upstream patches
 
-Patches intended for [sgl-project/sglang](https://github.com/sgl-project/sglang).
+Patches intended for [sgl-project/sglang](https://github.com/sgl-project/sglang), attached here for tracking and manual upstream submission.
 
-## 23457 — Mooncake HiCache multi-node runtime attach `local_hostname`
+## Bundles
 
-**Issue:** https://github.com/sgl-project/sglang/issues/23457
+| Issue | Directory | Summary |
+|-------|-----------|---------|
+| [#23457](https://github.com/sgl-project/sglang/issues/23457) | [`23457/`](23457/) | Mooncake HiCache multi-node runtime attach `local_hostname` fix |
 
-**Patch:** `23457-fix-mooncake-local-hostname.patch`
+Each bundle includes:
 
-Apply and open a PR against `sgl-project/sglang` `main`:
+- `.patch` file for `git am`
+- `attachments/` with modified upstream source copies
+- `MANIFEST.md` with file mapping and apply instructions
+
+## Submit upstream PR
+
+From Mooncake repo root:
 
 ```bash
-git clone https://github.com/sgl-project/sglang.git
-cd sglang
-git checkout -b cursor/fix-mooncake-hicache-multinode-local-hostname-d2df
-git am /path/to/mooncake/contrib/sglang-patches/23457-fix-mooncake-local-hostname.patch
-git remote add fork git@github.com:stmatengss/sglang.git   # or your fork
-git push -u fork cursor/fix-mooncake-hicache-multinode-local-hostname-d2df
-gh pr create --repo sgl-project/sglang --base main \
-  --head stmatengss:cursor/fix-mooncake-hicache-multinode-local-hostname-d2df \
-  --title "fix(hicache): resolve Mooncake local_hostname per node for runtime attach" \
-  --body "Fixes sgl-project/sglang#23457"
+./contrib/sglang-patches/submit-23457-pr.sh
 ```
+
+Requires `gh` logged in with push access to your `sglang` fork.
