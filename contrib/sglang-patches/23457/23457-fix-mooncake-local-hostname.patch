@@ -1,0 +1,190 @@
+From 05d09300c08d8c01759b05ab0955824c407f17a3 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Thu, 25 Jun 2026 06:13:04 +0000
+Subject: [PATCH] fix(hicache): resolve Mooncake local_hostname per node for
+ runtime attach
+
+When Mooncake HiCache storage is attached at runtime, extra_config is
+broadcast to all ranks. load_from_extra_config() previously fell back to
+the fixed default "localhost" when local_hostname was omitted, and a
+head-node local_hostname in the attach payload was applied to every rank.
+
+Introduce _resolve_local_hostname() so MOONCAKE_LOCAL_HOSTNAME /
+LOCAL_HOSTNAME from the current process take precedence over shared
+extra_config. Reuse the helper in from_file() and load_from_env().
+
+Fixes sgl-project/sglang#23457
+---
+ .../storage/mooncake_store/README.md          |  2 +
+ .../storage/mooncake_store/mooncake_store.py  | 39 +++++-----
+ .../mem_cache/test_mooncake_store_config.py   | 73 +++++++++++++++++++
+ 3 files changed, 97 insertions(+), 17 deletions(-)
+ create mode 100644 test/registered/unit/mem_cache/test_mooncake_store_config.py
+
+diff --git a/python/sglang/srt/mem_cache/storage/mooncake_store/README.md b/python/sglang/srt/mem_cache/storage/mooncake_store/README.md
+index 419ee5c..30be673 100644
+--- a/python/sglang/srt/mem_cache/storage/mooncake_store/README.md
++++ b/python/sglang/srt/mem_cache/storage/mooncake_store/README.md
+@@ -196,6 +196,8 @@ Mooncake loads configuration in the following priority order:
+ 2. If not, Mooncake checks whether the environment variable `DEFAULT_MOONCAKE_CONFIG_PATH_ENV` is set, and loads the JSON config file from that path.
+ 3. If neither of the above is provided, Mooncake falls back to environment variables.
+ 
++For multi-node deployments that attach Mooncake at runtime via `PUT /hicache/storage-backend`, omit `local_hostname` from the attach payload and set `MOONCAKE_LOCAL_HOSTNAME` (or `LOCAL_HOSTNAME`) per node before launching SGLang. Each rank resolves `local_hostname` from its own process environment instead of a shared default.
++
+ **Using extra-config of sglang arguments to configure Mooncake**
+ 
+ ```bash
+diff --git a/python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py b/python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py
+index 7c9861d..1cf6b79 100644
+--- a/python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py
++++ b/python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py
+@@ -97,6 +97,25 @@ class MooncakeStoreConfig:
+     enable_ssd_offload: bool = False
+     ssd_offload_path: Optional[str] = None
+ 
++    @staticmethod
++    def _resolve_local_hostname(overrides: Optional[dict] = None) -> str:
++        """Resolve local_hostname for the current process.
++
++        Process environment takes precedence over config overrides so multi-node
++        runtime attach can broadcast shared extra_config while each node uses its
++        own MOONCAKE_LOCAL_HOSTNAME / LOCAL_HOSTNAME.
++        """
++        if envs.MOONCAKE_LOCAL_HOSTNAME.is_set():
++            return envs.MOONCAKE_LOCAL_HOSTNAME.get()
++        local_hostname = os.getenv("LOCAL_HOSTNAME")
++        if local_hostname:
++            return local_hostname
++        if overrides is not None:
++            value = overrides.get("local_hostname")
++            if value:
++                return value
++        return envs.MOONCAKE_LOCAL_HOSTNAME.default
++
+     @staticmethod
+     def from_file() -> "MooncakeStoreConfig":
+         """Load the config from a JSON file."""
+@@ -120,9 +139,7 @@ class MooncakeStoreConfig:
+             )
+ 
+         return MooncakeStoreConfig(
+-            local_hostname=config.get(
+-                "local_hostname", envs.MOONCAKE_LOCAL_HOSTNAME.default
+-            ),
++            local_hostname=MooncakeStoreConfig._resolve_local_hostname(config),
+             metadata_server=config.get(
+                 "metadata_server", envs.MOONCAKE_TE_META_DATA_SERVER.default
+             ),
+@@ -168,18 +185,8 @@ class MooncakeStoreConfig:
+                 "Either the environment variable 'MOONCAKE_MASTER' or 'MOONCAKE_CLIENT' is not set."
+             )
+ 
+-        # Special handling for local_hostname: try MOONCAKE_LOCAL_HOSTNAME first,
+-        # then fall back to LOCAL_HOSTNAME if not set.
+-        # This is for forward compatibility with the legacy LOCAL_HOSTNAME environment variable.
+-        if envs.MOONCAKE_LOCAL_HOSTNAME.is_set():
+-            local_hostname = envs.MOONCAKE_LOCAL_HOSTNAME.get()
+-        else:
+-            local_hostname = os.getenv(
+-                "LOCAL_HOSTNAME", envs.MOONCAKE_LOCAL_HOSTNAME.default
+-            )
+-
+         return MooncakeStoreConfig(
+-            local_hostname=local_hostname,
++            local_hostname=MooncakeStoreConfig._resolve_local_hostname(),
+             metadata_server=envs.MOONCAKE_TE_META_DATA_SERVER.get(),
+             global_segment_size=_parse_global_segment_size(
+                 envs.MOONCAKE_GLOBAL_SEGMENT_SIZE.get()
+@@ -207,9 +214,7 @@ class MooncakeStoreConfig:
+             )
+ 
+         return MooncakeStoreConfig(
+-            local_hostname=extra_config.get(
+-                "local_hostname", envs.MOONCAKE_LOCAL_HOSTNAME.default
+-            ),
++            local_hostname=MooncakeStoreConfig._resolve_local_hostname(extra_config),
+             metadata_server=extra_config.get(
+                 "metadata_server", envs.MOONCAKE_TE_META_DATA_SERVER.default
+             ),
+diff --git a/test/registered/unit/mem_cache/test_mooncake_store_config.py b/test/registered/unit/mem_cache/test_mooncake_store_config.py
+new file mode 100644
+index 0000000..473c867
+--- /dev/null
++++ b/test/registered/unit/mem_cache/test_mooncake_store_config.py
+@@ -0,0 +1,73 @@
++import json
++import os
++import tempfile
++import unittest
++
++from sglang.srt.environ import temp_set_env
++from sglang.srt.mem_cache.storage.mooncake_store.mooncake_store import (
++    MooncakeStoreConfig,
++)
++
++
++class TestMooncakeStoreConfigLocalHostname(unittest.TestCase):
++    _BASE_EXTRA_CONFIG = {"master_server_address": "127.0.0.1:50051"}
++
++    def _load_from_extra_config(self, extra_config=None):
++        config = {**self._BASE_EXTRA_CONFIG, **(extra_config or {})}
++        return MooncakeStoreConfig.load_from_extra_config(config)
++
++    def test_load_from_extra_config_uses_mooncake_env_when_omitted(self):
++        with temp_set_env(MOONCAKE_LOCAL_HOSTNAME="10.0.0.2"):
++            cfg = self._load_from_extra_config()
++        self.assertEqual(cfg.local_hostname, "10.0.0.2")
++
++    def test_load_from_extra_config_uses_local_hostname_env_when_omitted(self):
++        with temp_set_env(LOCAL_HOSTNAME="10.0.0.3"):
++            cfg = self._load_from_extra_config()
++        self.assertEqual(cfg.local_hostname, "10.0.0.3")
++
++    def test_load_from_extra_config_defaults_to_localhost_without_env(self):
++        with temp_set_env(MOONCAKE_LOCAL_HOSTNAME=None, LOCAL_HOSTNAME=None):
++            cfg = self._load_from_extra_config()
++        self.assertEqual(cfg.local_hostname, "localhost")
++
++    def test_load_from_extra_config_uses_explicit_override_without_env(self):
++        with temp_set_env(MOONCAKE_LOCAL_HOSTNAME=None, LOCAL_HOSTNAME=None):
++            cfg = self._load_from_extra_config({"local_hostname": "10.0.0.9"})
++        self.assertEqual(cfg.local_hostname, "10.0.0.9")
++
++    def test_load_from_extra_config_prefers_env_over_broadcast_override(self):
++        with temp_set_env(MOONCAKE_LOCAL_HOSTNAME="10.0.0.4"):
++            cfg = self._load_from_extra_config({"local_hostname": "10.0.0.1"})
++        self.assertEqual(cfg.local_hostname, "10.0.0.4")
++
++    def test_load_from_env_uses_mooncake_env(self):
++        with temp_set_env(MOONCAKE_LOCAL_HOSTNAME="10.0.0.5", MOONCAKE_MASTER="127.0.0.1:50051"):
++            cfg = MooncakeStoreConfig.load_from_env()
++        self.assertEqual(cfg.local_hostname, "10.0.0.5")
++
++    def test_from_file_uses_process_env_when_local_hostname_omitted(self):
++        with tempfile.NamedTemporaryFile("w", delete=False) as fin:
++            json.dump(
++                {
++                    "master_server_address": "127.0.0.1:50051",
++                    "metadata_server": "P2PHANDSHAKE",
++                },
++                fin,
++            )
++            config_path = fin.name
++
++        try:
++            with temp_set_env(
++                allow_sglang=True,
++                SGLANG_HICACHE_MOONCAKE_CONFIG_PATH=config_path,
++                MOONCAKE_LOCAL_HOSTNAME="10.0.0.6",
++            ):
++                cfg = MooncakeStoreConfig.from_file()
++            self.assertEqual(cfg.local_hostname, "10.0.0.6")
++        finally:
++            os.unlink(config_path)
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.43.0
+
