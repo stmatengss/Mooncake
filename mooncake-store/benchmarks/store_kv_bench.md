@@ -202,3 +202,7 @@ Each phase prints:
 - aggregated error counts
 
 An overall summary is printed after all phases complete.
+
+Use `--json-output=/path/to/result.json` to also write machine-readable
+per-phase and overall summaries. The Store performance CI job
+(`scripts/ci/run_store_perf_ci.py`) consumes this output for threshold checks.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import json
 import logging
 import math
 import os
@@ -82,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--phase-gap-file", default="")
     parser.add_argument("--phase-gap-timeout-sec", type=int, default=600)
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--json-output",
+        default="",
+        help="Optional path to write per-phase and overall summaries as JSON.",
+    )
     return parser
 
 
@@ -999,6 +1005,20 @@ def log_overall_summary(phases: List[PhaseStats]) -> None:
     log_phase_stats(overall)
 
 
+def write_json_output(path: str, phases: List[PhaseStats]) -> None:
+    payload = {
+        "phases": [{"name": phase.name, **summarize_stats(phase)} for phase in phases],
+        "overall": {"name": "overall", **summarize_stats(merge_stats("overall", phases))},
+    }
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    LOG.info("wrote json output to %s", path)
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -1008,6 +1028,8 @@ def main() -> int:
         runner = BenchmarkRunner(args)
         phases = runner.run()
         log_overall_summary(phases)
+        if args.json_output:
+            write_json_output(args.json_output, phases)
         if any(phase.verify_failures > 0 for phase in phases):
             return 20
         if args.verify and any(phase.misses > 0 for phase in phases if "read" in phase.name):

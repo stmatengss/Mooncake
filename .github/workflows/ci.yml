@@ -584,6 +584,104 @@ jobs:
         python -m unittest mooncake-wheel.tests.test_safetensor_functions
       shell: bash
 
+  # Independent Store performance lane (SGLang-style separate benchmark job).
+  # Reuses mooncake-store/benchmarks/store_kv_bench.py with CI-sized workloads
+  # and conservative throughput floors to catch severe regressions without
+  # blocking on the ASan Debug functional build job.
+  store-performance-test:
+    name: Store Performance Test
+    needs: [spell-check, clang-format, build-flags]
+    if: >-
+      needs.build-flags.result == 'success' &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event.action == 'opened' ||
+       contains(github.event.pull_request.labels.*.name, 'run-ci'))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      MOONCAKE_IS_IN_CI: "true"
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Download wheel artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: mooncake-wheel-ubuntu-py312
+        path: mooncake-wheel/dist
+
+    - name: Verify wheel file exists
+      run: |
+        ls -la mooncake-wheel/dist/
+        if [ ! -f mooncake-wheel/dist/*.whl ]; then
+          echo "ERROR: No wheel file found in mooncake-wheel/dist/"
+          exit 1
+        fi
+      shell: bash
+
+    - name: Free up disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo rm -rf /usr/local/lib/android
+        df -h
+
+    - name: Install CUDA Toolkit
+      uses: Jimver/cuda-toolkit@v0.2.24
+      with:
+        cuda: '12.8.1'
+        linux-local-args: '["--toolkit"]'
+        method: 'network'
+
+    - name: Install Mooncake wheel
+      run: |
+        python -m venv test_env
+        source test_env/bin/activate
+        pip install --upgrade pip
+        sudo apt-get update
+        sudo apt-get install -y build-essential libibverbs-dev libnuma-dev libssl-dev libcurl4-openssl-dev
+        pip install mooncake-wheel/dist/*.whl
+        python -c "import mooncake.store"
+        which mooncake_master
+        which mooncake_http_metadata_server
+      shell: bash
+
+    - name: Start metadata server and Mooncake master
+      run: |
+        source test_env/bin/activate
+        mooncake_http_metadata_server --port 8080 &
+        sleep 2
+        mooncake_master \
+          --eviction_high_watermark_ratio=0.95 \
+          --cluster_id=ci_store_perf_cluster \
+          --port 50051 &
+        sleep 3
+      shell: bash
+
+    - name: Run Store performance CI
+      run: |
+        source test_env/bin/activate
+        python scripts/ci/run_store_perf_ci.py \
+          --output-dir store-perf-ci-results
+      shell: bash
+
+    - name: Upload Store performance artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: store-perf-ci-results
+        path: store-perf-ci-results/
+        if-no-files-found: warn
+
   build-flags:
     needs: [spell-check, clang-format, check-paths]
     if: >-
