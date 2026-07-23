@@ -92,6 +92,37 @@ class StorePerfCiHelpersTest(unittest.TestCase):
             loaded = json.loads(summary.read_text(encoding="utf-8"))
             self.assertEqual(loaded["results"][0]["name"], "demo")
 
+    def test_console_results_lines_include_metrics_and_status(self):
+        lines = self.mod.build_console_results_lines(
+            [
+                {
+                    "name": "write_perf_plain",
+                    "phase": "write_perf",
+                    "MiB_per_sec": 42.5,
+                    "kv_per_sec": 1000.0,
+                    "lat_p50_ms": 1.234,
+                    "lat_p99_ms": 3.456,
+                    "gate_failures": [],
+                },
+                {
+                    "name": "read_perf_plain",
+                    "phase": "read_perf",
+                    "MiB_per_sec": 12.0,
+                    "kv_per_sec": 500.0,
+                    "lat_p50_ms": 2.0,
+                    "lat_p99_ms": 4.0,
+                    "gate_failures": ["below threshold"],
+                },
+            ]
+        )
+        rendered = "\n".join(lines)
+        self.assertIn("Case", rendered)
+        self.assertIn("write_perf_plain", rendered)
+        self.assertIn("42.50", rendered)
+        self.assertIn("3.456", rendered)
+        self.assertIn("PASS", rendered)
+        self.assertIn("FAIL", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

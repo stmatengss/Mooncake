@@ -265,6 +265,56 @@ def append_step_summary(lines: List[str]) -> None:
         handle.write("\n".join(lines) + "\n")
 
 
+def build_step_summary_lines(
+    results: List[Dict[str, Any]], all_gate_failures: List[str]
+) -> List[str]:
+    summary_lines = [
+        "## Mooncake Store Performance CI",
+        "",
+        f"- CI mode: `{is_in_ci()}`",
+        f"- Cases: {len(results)}",
+        f"- Gate failures: {len(all_gate_failures)}",
+        "",
+        "| Case | Phase | MiB/s | kv/s | p50 (ms) | p99 (ms) | Status |",
+        "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for result in results:
+        status = "FAIL" if result["gate_failures"] else "PASS"
+        summary_lines.append(
+            f"| `{result['name']}` | `{result['phase']}` | "
+            f"{result['MiB_per_sec']:.2f} | {result['kv_per_sec']:.2f} | "
+            f"{result['lat_p50_ms']:.3f} | {result['lat_p99_ms']:.3f} | {status} |"
+        )
+    if all_gate_failures:
+        summary_lines.extend(["", "### Threshold failures", ""])
+        summary_lines.extend(f"- {item}" for item in all_gate_failures)
+    return summary_lines
+
+
+def build_console_results_lines(results: List[Dict[str, Any]]) -> List[str]:
+    headers = ("Case", "Phase", "MiB/s", "kv/s", "p50 (ms)", "p99 (ms)", "Status")
+    rows = [headers]
+    for result in results:
+        rows.append(
+            (
+                str(result["name"]),
+                str(result["phase"]),
+                f"{result['MiB_per_sec']:.2f}",
+                f"{result['kv_per_sec']:.2f}",
+                f"{result['lat_p50_ms']:.3f}",
+                f"{result['lat_p99_ms']:.3f}",
+                "FAIL" if result["gate_failures"] else "PASS",
+            )
+        )
+    widths = [max(len(row[idx]) for row in rows) for idx in range(len(headers))]
+
+    def format_row(row: tuple[str, ...]) -> str:
+        return "  ".join(value.ljust(widths[idx]) for idx, value in enumerate(row))
+
+    separator = "  ".join("-" * width for width in widths)
+    return [format_row(headers), separator, *[format_row(row) for row in rows[1:]]]
+
+
 def run_case(
     case: Dict[str, Any],
     args: argparse.Namespace,
@@ -364,27 +414,17 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    summary_lines = [
-        "## Mooncake Store Performance CI",
-        "",
-        f"- CI mode: `{is_in_ci()}`",
-        f"- Cases: {len(results)}",
-        f"- Gate failures: {len(all_gate_failures)}",
-        "",
-        "| Case | Phase | MiB/s | kv/s | p50 (ms) | p99 (ms) | Status |",
-        "| --- | --- | ---: | ---: | ---: | ---: | --- |",
-    ]
-    for result in results:
-        status = "FAIL" if result["gate_failures"] else "PASS"
-        summary_lines.append(
-            f"| `{result['name']}` | `{result['phase']}` | "
-            f"{result['MiB_per_sec']:.2f} | {result['kv_per_sec']:.2f} | "
-            f"{result['lat_p50_ms']:.3f} | {result['lat_p99_ms']:.3f} | {status} |"
-        )
-    if all_gate_failures:
-        summary_lines.extend(["", "### Threshold failures", ""])
-        summary_lines.extend(f"- {item}" for item in all_gate_failures)
+    summary_lines = build_step_summary_lines(results, all_gate_failures)
     append_step_summary(summary_lines)
+    print("::group::Mooncake Store performance results")
+    for line in build_console_results_lines(results):
+        print(line)
+    if all_gate_failures:
+        print("")
+        print("Threshold failures:")
+        for item in all_gate_failures:
+            print(f"- {item}")
+    print("::endgroup::")
 
     if all_gate_failures:
         print("Store performance CI failed threshold checks:", file=sys.stderr)
