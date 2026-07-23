@@ -655,6 +655,11 @@ jobs:
         which mooncake_http_metadata_server
       shell: bash
 
+    - name: Run Store performance helper unit tests
+      run: |
+        python scripts/ci/test_run_store_perf_ci.py -v
+      shell: bash
+
     - name: Start metadata server and Mooncake master
       run: |
         source test_env/bin/activate
