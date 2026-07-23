@@ -2,6 +2,31 @@
 
 This directory contains benchmark tools for Mooncake Store internals.
 
+## CI Performance Gate
+
+GitHub Actions runs an **independent** Store performance job
+(`store-performance-test` in `.github/workflows/ci.yml`) that does not share
+the ASan Debug functional build. It follows the SGLang pattern of a separate
+benchmark CI lane:
+
+1. Reuse the Release-oriented wheel from `build-flags`
+2. Drive `store_kv_bench.py` with CI-sized workloads
+3. Enforce conservative floors from `ci_perf_thresholds.json`
+4. Publish a GitHub Actions step summary and upload JSON/log artifacts
+
+Local reproduction (with master + metadata server already running):
+
+```bash
+python scripts/ci/run_store_perf_ci.py --output-dir /tmp/store-perf-ci-results
+```
+
+Optional: skip zero-copy cases or select a subset:
+
+```bash
+python scripts/ci/run_store_perf_ci.py --skip-zcopy
+python scripts/ci/run_store_perf_ci.py --cases verify_write_plain,write_perf_plain
+```
+
 ## Allocation Strategy Benchmark
 
 `allocation_strategy_bench` evaluates Store allocation behavior across segment
