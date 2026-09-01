@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "python3 .github/hooks/scripts/pre_tool_use.py",
+        "cwd": ".",
+        "timeout": 10
+      }
+    ]
+  }
+}
