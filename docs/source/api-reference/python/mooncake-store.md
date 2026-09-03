@@ -2750,35 +2750,51 @@ def batch_get_tensor_with_tp_into(self, base_keys: List[str], buffer_ptrs: List[
 
 #### put_tensor_from()
 
-Put a PyTorch tensor into the store directly from a pre-allocated buffer (zero-copy). The buffer must contain data in the same layout as produced by `get_tensor_into`: **\[TensorMetadata\]\[tensor data\]**. The buffer is only read during this call; no Python object references it.
+Put a PyTorch tensor into the store with a zero-copy payload. There are two overloads:
+
+1. **Serialized buffer.** The buffer must contain data in the same layout as produced by `get_tensor_into`: **\[TensorMetadata\]\[tensor data\]**. The buffer may be host memory or a CUDA device pointer; metadata is read with a device-to-host copy of the header only. Register the buffer before the call.
+2. **Tensor object (high performance).** `put_tensor_from(key, tensor)` stores the tensor using `tensor.data_ptr()` directly. CUDA tensors keep the payload on device: dummy clients use CUDA IPC, and real clients skip host staging so Transfer Engine can GPU-direct or TCP-stage the device pointer. Prefer this overload for `cuda_tensor.data_ptr()` workloads.
 
 ```python
 def put_tensor_from(self, key: str, buffer_ptr: int, size: int) -> int
+def put_tensor_from(self, key: str, tensor: torch.Tensor) -> int
 ```
 
 **Parameters:**
 
   - `key` (str): Object identifier for the tensor.
-  - `buffer_ptr` (int): The buffer pointer; the buffer should be registered. Layout must be \[TensorMetadata\]\[tensor data\].
+  - `buffer_ptr` (int): The buffer pointer; the buffer should be registered. Layout must be \[TensorMetadata\]\[tensor data\]. Host or CUDA device pointers are accepted.
   - `size` (int): **Actual serialized byte length** of the data in the buffer (metadata + tensor bytes), not the buffer capacity.
+  - `tensor` (`torch.Tensor`): Contiguous PyTorch tensor whose `data_ptr()` is the payload. CUDA tensors are transferred from device memory.
 
 **Returns:**
 
   - `int`: Status code (0 = success, non-zero = error code).
 
+**Example (CUDA tensor, zero-copy payload):**
+
+```python
+cuda_tensor = torch.randn(1024, 1024, device="cuda")
+# Optional for real-client GPU-direct RDMA: register once and reuse.
+store.register_buffer(cuda_tensor.data_ptr(), cuda_tensor.nbytes)
+result = store.put_tensor_from("weights", cuda_tensor)
+```
+
 #### batch_put_tensor_from()
 
-Put a batch of PyTorch tensors into the store directly from pre-allocated buffers (zero-copy). Each buffer must contain data in the layout **\[TensorMetadata\]\[tensor data\]**, same as `get_tensor_into`.
+Put a batch of PyTorch tensors into the store with zero-copy payloads. Same two overloads as `put_tensor_from()`: serialized **\[TensorMetadata\]\[tensor data\]** buffers, or a list of tensors that are stored from each `data_ptr()`.
 
 ```python
 def batch_put_tensor_from(self, keys: List[str], buffer_ptrs: List[int], sizes: List[int]) -> List[int]
+def batch_put_tensor_from(self, keys: List[str], tensors_list: List[torch.Tensor]) -> List[int]
 ```
 
 **Parameters:**
 
   - `keys` (List[str]): List of object identifiers.
-  - `buffer_ptrs` (List[int]): List of buffer pointers; buffers should be registered.
+  - `buffer_ptrs` (List[int]): List of buffer pointers; buffers should be registered. Host or CUDA device pointers are accepted.
   - `sizes` (List[int]): List of **actual serialized byte lengths** for each buffer (metadata + tensor bytes), not buffer capacities.
+  - `tensors_list` (List[torch.Tensor]): Tensors whose `data_ptr()` values are the payloads.
 
 **Returns:**
 

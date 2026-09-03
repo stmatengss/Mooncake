@@ -317,6 +317,63 @@ py::tuple serialize_tensor_metadata(py::object tensor) {
 
 size_t tensor_metadata_size() { return sizeof(TensorMetadata); }
 
+// Read TensorMetadata from a caller buffer that may be host or device memory.
+// Device pointers are copied with CopyToHost so CUDA tensor buffers can be
+// validated without crashing on a host memcpy.
+std::optional<ParsedTensorMetadata> parse_user_tensor_buffer(const void *buffer,
+                                                             size_t size) {
+    if (!buffer || size < sizeof(TensorMetadata)) {
+        return std::nullopt;
+    }
+
+    TensorMetadata metadata{};
+    auto runtime_accelerator =
+        mooncake::device::GetAcceleratorRegistry().RuntimeAccelerators();
+    if (!runtime_accelerator.CopyToHost(&metadata, buffer,
+                                        sizeof(TensorMetadata))) {
+        LOG(ERROR) << "Failed to read tensor metadata from user buffer";
+        return std::nullopt;
+    }
+    if (!ValidateTensorMetadata(metadata, size)) {
+        return std::nullopt;
+    }
+
+    ParsedTensorMetadata parsed{};
+    parsed.metadata = metadata;
+    parsed.data_offset = static_cast<size_t>(metadata.header.data_offset);
+    parsed.data_bytes = static_cast<size_t>(metadata.header.data_bytes);
+    return parsed;
+}
+
+bool tensor_info_is_cuda(const PyTensorInfo &info) {
+    if (!info.owner || info.owner.is_none()) {
+        return false;
+    }
+    try {
+        return info.owner.attr("is_cuda").cast<bool>();
+    } catch (const py::error_already_set &) {
+        PyErr_Clear();
+        return false;
+    } catch (const py::cast_error &) {
+        return false;
+    }
+}
+
+bool batch_tensor_infos_are_cuda_payloads(
+    const std::vector<PyTensorInfo> &infos) {
+    bool saw_payload = false;
+    for (const auto &info : infos) {
+        if (!info.valid() || info.tensor_size == 0) {
+            continue;
+        }
+        saw_payload = true;
+        if (!tensor_info_is_cuda(info)) {
+            return false;
+        }
+    }
+    return saw_payload;
+}
+
 bool tensor_destination_matches_metadata(const PyTensorInfo &target,
                                          const ParsedTensorMetadata &stored,
                                          const std::string &key,
@@ -1029,7 +1086,8 @@ class MooncakeStorePyWrapper {
     std::vector<int> batch_put_tensor_infos_impl(
         const std::vector<std::string> &keys,
         const std::vector<PyTensorInfo> &infos,
-        const ReplicateConfig &config = ReplicateConfig{}) {
+        const ReplicateConfig &config = ReplicateConfig{},
+        bool stage_nonlocal = true) {
         if (auto cuda_ipc_results =
                 try_dummy_cuda_ipc_batch_put_tensor_impl(keys, infos, config)) {
             return *cuda_ipc_results;
@@ -1043,12 +1101,13 @@ class MooncakeStorePyWrapper {
                 return store_->batch_put_from(write_keys, buffers, sizes,
                                               write_config);
             },
-            [this](const std::vector<std::string> &write_keys,
-                   const std::vector<std::vector<void *>> &buffers,
-                   const std::vector<std::vector<size_t>> &sizes,
-                   const ReplicateConfig &write_config) {
+            [this, stage_nonlocal](
+                const std::vector<std::string> &write_keys,
+                const std::vector<std::vector<void *>> &buffers,
+                const std::vector<std::vector<size_t>> &sizes,
+                const ReplicateConfig &write_config) {
                 return real_client_->batch_put_from_multi_buffers(
-                    write_keys, buffers, sizes, write_config, true);
+                    write_keys, buffers, sizes, write_config, stage_nonlocal);
             });
     }
 
@@ -1201,7 +1260,8 @@ class MooncakeStorePyWrapper {
                                              tp_size, split_dim);
     }
 
-    // Zero-copy put from pre-allocated buffer (layout: [TensorMetadata][data])
+    // Zero-copy put from pre-allocated buffer (layout: [TensorMetadata][data]).
+    // The buffer may be host memory or a registered CUDA device pointer.
     int put_tensor_from(const std::string &key, uintptr_t buffer_ptr,
                         size_t size) {
         if (buffer_ptr == 0) {
@@ -1217,13 +1277,35 @@ class MooncakeStorePyWrapper {
             LOG(ERROR) << "Buffer size too small for tensor metadata";
             return to_py_ret(ErrorCode::INVALID_PARAMS);
         }
-        if (!ParseTensorMetadata(reinterpret_cast<const char *>(buffer), size)
-                 .has_value()) {
+        if (!parse_user_tensor_buffer(buffer, size).has_value()) {
             LOG(ERROR) << "Invalid tensor metadata";
             return to_py_ret(ErrorCode::INVALID_PARAMS);
         }
         py::gil_scoped_release release_gil;
         return store_->put_from(key, buffer, size, ReplicateConfig{});
+    }
+
+    // Zero-copy put from a PyTorch tensor's data_ptr(). CUDA tensors use the
+    // GPU payload directly (CUDA IPC on dummy clients, device RDMA/TCP on
+    // real clients) instead of staging the payload through host memory.
+    int put_tensor_from(const std::string &key, pybind11::object tensor) {
+        if (!is_client_initialized()) {
+            LOG(ERROR) << "Client is not initialized";
+            return to_py_ret(ErrorCode::INVALID_PARAMS);
+        }
+        auto info = extract_tensor_info(tensor, key);
+        if (!info.valid()) return to_py_ret(ErrorCode::INVALID_PARAMS);
+        const bool stage_nonlocal = !tensor_info_is_cuda(info);
+        auto results = batch_put_tensor_infos_impl(
+            std::vector<std::string>{key}, std::vector<PyTensorInfo>{info},
+            ReplicateConfig{}, stage_nonlocal);
+        if (results.size() != 1) {
+            LOG(ERROR)
+                << "put_tensor_from returned unexpected result count for key "
+                << key;
+            return to_py_ret(ErrorCode::RPC_FAIL);
+        }
+        return results[0];
     }
 
     std::vector<int> batch_put_tensor_from(
@@ -1257,8 +1339,8 @@ class MooncakeStorePyWrapper {
                 return std::vector<int>(keys.size(),
                                         to_py_ret(ErrorCode::INVALID_PARAMS));
             }
-            if (!ParseTensorMetadata(
-                     reinterpret_cast<const char *>(buffer_ptrs[i]), sizes[i])
+            if (!parse_user_tensor_buffer(
+                     reinterpret_cast<const void *>(buffer_ptrs[i]), sizes[i])
                      .has_value()) {
                 LOG(ERROR) << "Invalid tensor metadata at index " << i;
                 return std::vector<int>(keys.size(),
@@ -1272,6 +1354,29 @@ class MooncakeStorePyWrapper {
         }
         py::gil_scoped_release release_gil;
         return store_->batch_put_from(keys, buffers, sizes, ReplicateConfig{});
+    }
+
+    std::vector<int> batch_put_tensor_from(const std::vector<std::string> &keys,
+                                           const pybind11::list &tensors_list) {
+        if (!is_client_initialized()) {
+            return std::vector<int>(keys.size(),
+                                    to_py_ret(ErrorCode::INVALID_PARAMS));
+        }
+        if (keys.size() != tensors_list.size() || keys.empty()) {
+            if (!keys.empty()) {
+                LOG(ERROR) << "Size mismatch in batch_put_tensor_from";
+            }
+            return std::vector<int>(keys.size(),
+                                    to_py_ret(ErrorCode::INVALID_PARAMS));
+        }
+        std::vector<PyTensorInfo> infos(keys.size());
+        for (size_t i = 0; i < keys.size(); ++i) {
+            infos[i] = extract_tensor_info(tensors_list[i], keys[i]);
+        }
+        const bool stage_nonlocal =
+            !batch_tensor_infos_are_cuda_payloads(infos);
+        return batch_put_tensor_infos_impl(keys, infos, ReplicateConfig{},
+                                           stage_nonlocal);
     }
 
     int put_tensor_info_impl(const std::string &key, const PyTensorInfo &info,
@@ -1576,8 +1681,8 @@ class MooncakeStorePyWrapper {
                 return std::vector<int>(keys.size(),
                                         to_py_ret(ErrorCode::INVALID_PARAMS));
             }
-            if (!ParseTensorMetadata(
-                     reinterpret_cast<const char *>(buffer_ptrs[i]), sizes[i])
+            if (!parse_user_tensor_buffer(
+                     reinterpret_cast<const void *>(buffer_ptrs[i]), sizes[i])
                      .has_value()) {
                 LOG(ERROR) << "Invalid tensor metadata at index " << i;
                 return std::vector<int>(keys.size(),
@@ -1640,8 +1745,7 @@ class MooncakeStorePyWrapper {
             LOG(ERROR) << "Buffer size too small for tensor metadata";
             return to_py_ret(ErrorCode::INVALID_PARAMS);
         }
-        if (!ParseTensorMetadata(reinterpret_cast<const char *>(buffer), size)
-                 .has_value()) {
+        if (!parse_user_tensor_buffer(buffer, size).has_value()) {
             LOG(ERROR) << "Invalid tensor metadata";
             return to_py_ret(ErrorCode::INVALID_PARAMS);
         }
@@ -2527,15 +2631,36 @@ PYBIND11_MODULE(store, m) {
             py::arg("tp_rank") = 0, py::arg("tp_size") = 1,
             "Get a batch of PyTorch tensor shards from the store directly into "
             "pre-allocated buffers for a given Tensor Parallel rank.")
-        .def("put_tensor_from", &MooncakeStorePyWrapper::put_tensor_from,
+        .def("put_tensor_from",
+             py::overload_cast<const std::string &, uintptr_t, size_t>(
+                 &MooncakeStorePyWrapper::put_tensor_from),
              py::arg("key"), py::arg("buffer_ptr"), py::arg("size"),
              "Put a tensor directly from a pre-allocated buffer. Buffer layout "
-             "must be [TensorMetadata][tensor data], same as get_tensor_into.")
+             "must be [TensorMetadata][tensor data], same as get_tensor_into. "
+             "The buffer may be host memory or a CUDA device pointer.")
+        .def("put_tensor_from",
+             py::overload_cast<const std::string &, pybind11::object>(
+                 &MooncakeStorePyWrapper::put_tensor_from),
+             py::arg("key"), py::arg("tensor"),
+             "Put a PyTorch tensor using tensor.data_ptr() (zero-copy). CUDA "
+             "tensors keep the payload on device via CUDA IPC or GPU-direct "
+             "transfer instead of staging through host memory.")
         .def("batch_put_tensor_from",
-             &MooncakeStorePyWrapper::batch_put_tensor_from, py::arg("keys"),
-             py::arg("buffer_ptrs"), py::arg("sizes"),
+             py::overload_cast<const std::vector<std::string> &,
+                               const std::vector<uintptr_t> &,
+                               const std::vector<size_t> &>(
+                 &MooncakeStorePyWrapper::batch_put_tensor_from),
+             py::arg("keys"), py::arg("buffer_ptrs"), py::arg("sizes"),
              "Put tensors directly from pre-allocated buffers for multiple "
-             "keys. Each buffer layout: [TensorMetadata][tensor data].")
+             "keys. Each buffer layout: [TensorMetadata][tensor data]. "
+             "Buffers may be host memory or CUDA device pointers.")
+        .def("batch_put_tensor_from",
+             py::overload_cast<const std::vector<std::string> &,
+                               const pybind11::list &>(
+                 &MooncakeStorePyWrapper::batch_put_tensor_from),
+             py::arg("keys"), py::arg("tensors_list"),
+             "Put a batch of PyTorch tensors using each tensor's data_ptr() "
+             "(zero-copy). CUDA tensors keep payloads on device.")
         .def("put_tensor_with_tp_from",
              &MooncakeStorePyWrapper::put_tensor_with_tp_from, py::arg("key"),
              py::arg("buffer_ptr"), py::arg("size"), py::arg("tp_rank") = 0,
