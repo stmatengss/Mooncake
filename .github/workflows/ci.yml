@@ -165,6 +165,128 @@ jobs:
         ./scripts/ci/run_ssd_offload_smoke.sh
       shell: bash
 
+  # Independent Store performance lane (SGLang-style separate benchmark job).
+  # Reuses mooncake-store/benchmarks/store_kv_bench.py with CI-sized workloads
+  # for TCP loopback and Soft-RoCE RDMA, with conservative throughput floors.
+  store-performance-test:
+    name: Store Performance Test (TCP + RDMA)
+    needs: [build-wheel]
+    if: *run-ci-for-source-changes
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      CI: "true"
+      MOONCAKE_IS_IN_CI: "true"
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Download wheel artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: mooncake-wheel-ci-py312
+        path: mooncake-wheel/dist
+
+    - name: Verify wheel file exists
+      run: |
+        ls -la mooncake-wheel/dist/
+        shopt -s nullglob
+        wheels=(mooncake-wheel/dist/*.whl)
+        if [ "${#wheels[@]}" -eq 0 ]; then
+          echo "ERROR: No wheel file found in mooncake-wheel/dist/"
+          exit 1
+        fi
+      shell: bash
+
+    - name: Free up disk space
+      uses: ./.github/actions/free-disk-space
+
+    - name: Install CUDA Toolkit
+      uses: Jimver/cuda-toolkit@v0.2.24
+      with:
+        cuda: '12.8.1'
+        linux-local-args: '["--toolkit"]'
+        method: 'network'
+
+    - name: Install Mooncake wheel
+      run: |
+        python -m venv test_env
+        source test_env/bin/activate
+        pip install --upgrade pip
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential libibverbs-dev libnuma-dev libssl-dev libcurl4-openssl-dev \
+          rdma-core ibverbs-utils
+        pip install mooncake-wheel/dist/*.whl
+        python -c "import mooncake.store"
+        which mooncake_master
+        which mooncake_http_metadata_server
+      shell: bash
+
+    - name: Setup Soft-RoCE for RDMA performance lane
+      run: |
+        chmod +x scripts/ci/setup_soft_roce.sh
+        # Script logs to stderr and writes RDMA_* to GITHUB_ENV + stdout.
+        eval "$(scripts/ci/setup_soft_roce.sh)"
+        echo "RDMA_DEVICE=${RDMA_DEVICE}"
+        echo "RDMA_BIND_IP=${RDMA_BIND_IP}"
+        test -n "${RDMA_DEVICE}"
+        test -n "${RDMA_BIND_IP}"
+      shell: bash
+
+    - name: Run Store performance CI (TCP + RDMA)
+      run: |
+        set -euo pipefail
+        source test_env/bin/activate
+        source scripts/ci/services.sh
+        trap 'ci_cleanup_services "$?"' EXIT
+
+        mkdir -p store-perf-ci-results
+        ci_start_service metadata store-perf-ci-results/metadata.log \
+          mooncake_http_metadata_server --port 8080
+        ci_wait_service metadata 8080
+        ci_start_service master store-perf-ci-results/master.log \
+          mooncake_master \
+            --eviction_high_watermark_ratio=0.95 \
+            --cluster_id=ci_store_perf_cluster \
+            --port 50051
+        ci_wait_service master 50051
+
+        echo "::group::Store performance CI (TCP)"
+        python scripts/ci/run_store_perf_ci.py \
+          --protocol=tcp \
+          --output-dir store-perf-ci-results/tcp
+        echo "::endgroup::"
+
+        # Soft-RoCE needs raised memlock in this same step.
+        if command -v prlimit >/dev/null 2>&1; then
+          sudo prlimit --pid="$$" --memlock=unlimited:unlimited 2>/dev/null || true
+        fi
+        ulimit -l unlimited 2>/dev/null || true
+
+        echo "::group::Store performance CI (RDMA Soft-RoCE)"
+        python scripts/ci/run_store_perf_ci.py \
+          --protocol=rdma \
+          --device-name="${RDMA_DEVICE}" \
+          --local-hostname="${RDMA_BIND_IP}:50071" \
+          --output-dir store-perf-ci-results/rdma
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Upload Store performance artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: store-perf-ci-results
+        path: store-perf-ci-results/
+        if-no-files-found: warn
+
   unit-tests:
     name: CTest unit tests (Python 3.12)
     needs: [check-paths]
@@ -788,6 +910,7 @@ jobs:
       - unit-tests
       - build-flags
       - test-wheel-ubuntu
+      - store-performance-test
       - build-wheel-cu13
       - build-wheel-cu13-arm64
       - build-wheel-efa
@@ -820,6 +943,7 @@ jobs:
             ${{ needs.unit-tests.result }}
             ${{ needs.build-flags.result }}
             ${{ needs.test-wheel-ubuntu.result }}
+            ${{ needs.store-performance-test.result }}
             ${{ needs.build-wheel-cu13.result }}
             ${{ needs.build-wheel-cu13-arm64.result }}
             ${{ needs.build-wheel-efa.result }}

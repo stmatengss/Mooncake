@@ -2,6 +2,44 @@
 
 This directory contains benchmark tools for Mooncake Store internals.
 
+## CI Performance Gate
+
+GitHub Actions runs an **independent** Store performance job
+(`store-performance-test` in `.github/workflows/ci.yml`) that does not share
+the ASan / unit-test build. It follows the SGLang pattern of a separate
+benchmark CI lane:
+
+1. Reuse the Release wheel from `build-wheel`
+2. Drive `store_kv_bench.py` with CI-sized workloads over **TCP** and
+   **RDMA Soft-RoCE** (`scripts/ci/setup_soft_roce.sh`)
+3. Enforce conservative floors from `ci_perf_thresholds.json` (TCP) and
+   `ci_perf_thresholds_rdma.json` (Soft-RoCE)
+4. Publish a GitHub Actions step summary and upload JSON/log artifacts
+
+Local reproduction (with master + metadata server already running):
+
+```bash
+python scripts/ci/run_store_perf_ci.py --protocol=tcp \
+  --output-dir /tmp/store-perf-ci-results/tcp
+
+# RDMA Soft-RoCE (requires rdma_rxe):
+eval "$(bash scripts/ci/setup_soft_roce.sh)"
+python scripts/ci/run_store_perf_ci.py --protocol=rdma \
+  --device-name="${RDMA_DEVICE}" \
+  --local-hostname="${RDMA_BIND_IP}:50071" \
+  --output-dir /tmp/store-perf-ci-results/rdma
+```
+
+Optional: skip zero-copy cases or select a subset:
+
+```bash
+python scripts/ci/run_store_perf_ci.py --skip-zcopy
+python scripts/ci/run_store_perf_ci.py --cases verify_write_plain,write_perf_plain
+```
+
+Soft-RoCE floors are intentionally low: they catch RDMA path breakage and
+severe stalls on shared runners, not real NIC bandwidth.
+
 ## Allocation Strategy Benchmark
 
 `allocation_strategy_bench` evaluates Store allocation behavior across segment

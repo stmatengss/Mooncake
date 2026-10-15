@@ -1,0 +1,40 @@
+{
+  "_comment": "Conservative GitHub Actions TCP loopback floors for store_kv_bench. Tuned to catch severe regressions without flaking on shared runners.",
+  "cases": {
+    "verify_write_plain": {
+      "phase": "verify_read",
+      "max_verify_failures": 0,
+      "max_misses": 0,
+      "max_failed_requests": 0,
+      "min_successful_kvs": 16
+    },
+    "write_perf_plain": {
+      "phase": "write_perf",
+      "max_failed_requests": 0,
+      "min_MiB_per_sec": 5.0,
+      "min_kv_per_sec": 100.0
+    },
+    "read_perf_plain": {
+      "phase": "read_perf",
+      "max_verify_failures": 0,
+      "max_misses": 0,
+      "max_failed_requests": 0,
+      "min_MiB_per_sec": 5.0,
+      "min_kv_per_sec": 100.0
+    },
+    "write_perf_zcopy": {
+      "phase": "write_perf",
+      "max_failed_requests": 0,
+      "min_MiB_per_sec": 5.0,
+      "min_kv_per_sec": 100.0
+    },
+    "read_perf_zcopy": {
+      "phase": "read_perf",
+      "max_verify_failures": 0,
+      "max_misses": 0,
+      "max_failed_requests": 0,
+      "min_MiB_per_sec": 5.0,
+      "min_kv_per_sec": 100.0
+    }
+  }
+}
