@@ -174,6 +174,7 @@ troubleshooting/store-rs-key-access
 :maxdepth: 1
 
 community/governance
+community/agent-harness
 :::
 
 % Archived content
