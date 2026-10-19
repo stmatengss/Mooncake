@@ -283,3 +283,8 @@ If a worker raises an exception, the benchmark waits for all workers to finish,
 reports the failed phase and lane, and exits with code `1`. This error path does
 not write a new summary or journal; any output files from an earlier run remain
 unchanged.
+
+Use `--summary-json=/path/to/result.json` (or `--output-dir`) to write
+machine-readable per-phase and overall summaries. The Store performance CI job
+(`scripts/ci/run_store_perf_ci.py`) consumes this output for TCP and RDMA
+(Soft-RoCE) threshold checks.
