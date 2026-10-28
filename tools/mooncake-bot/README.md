@@ -32,6 +32,9 @@ branch and **draft** PR in this fork. It never updates the default branch or
 merges a PR. Review feedback and merged/closed outcomes feed later proposals;
 merge status is an acceptance signal, not proof that a diagnosis was correct.
 Without publication permission, validated patches remain `pending` in artifacts.
+After an operator enables publication, the worker rechecks the stored patch,
+static-review result, open-PR limit and base commit before publishing it without
+another model generation. Ambiguous publication failures require inspection.
 
 The review-instruction loop runs at most once per 24 hours. It evaluates the
 current instruction on eight fixed synthetic cases, proposes an instruction using
@@ -42,7 +45,9 @@ false positives, and no development regression. A valid alternative line anchor
 counts as one defect. The active instruction, parent hash, benchmark hash and
 metrics are written atomically. The immutable base policy, JSON schema, tool
 restrictions, authorization, budgets and scoring code cannot be changed by a
-candidate. Each promotion influences the next generation's baseline.
+candidate. Each promotion influences the next generation's baseline. At the
+benchmark ceiling, prompt search waits for a reviewed benchmark or active-policy
+change instead of spending calls on further ties.
 
 This is bounded improvement of code proposals and review instructions. It does
 not train model weights or establish general recursive intelligence. The small

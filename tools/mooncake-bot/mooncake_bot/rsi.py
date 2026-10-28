@@ -169,6 +169,10 @@ class Worker:
     def get(self, suffix, **kwargs):
         return self.github.get(self.github.prefix + suffix, self.task, **kwargs)
 
+    def open_proposals(self):
+        opened = self.github.pages(self.github.prefix + "/pulls", self.task)
+        return sum(pr["head"]["ref"].startswith("rsi/project-") for pr in opened)
+
     async def ask(self, data, schema, policy, directory):
         self.state.reserve(self.settings.max_model_calls_per_day)
         return await invoke(self.config, data, schema, policy, directory)
@@ -257,11 +261,7 @@ class Worker:
 
     async def project(self):
         if self.settings.publish_projects:
-            opened = self.get("/pulls", params={"state": "open", "per_page": 100})
-            if (
-                sum(pr["head"]["ref"].startswith("rsi/project-") for pr in opened)
-                >= self.settings.max_open_proposals
-            ):
+            if self.open_proposals() >= self.settings.max_open_proposals:
                 return
         elif (
             sum(r["state"] == "pending" for r in self.state.recent())
@@ -332,13 +332,55 @@ class Worker:
             self.state.finish(run_id, "failed", {"error": type(exc).__name__})
             LOG.exception("Project RSI attempt failed")
 
+    def publish_pending(self):
+        """Publish reviewed artifacts after an operator enables publication."""
+        for row in reversed(self.state.recent()):
+            if row["kind"] != "project" or row["state"] != "pending":
+                continue
+            if self.open_proposals() >= self.settings.max_open_proposals:
+                return
+            directory = self.state.directory / row["id"]
+            record = json.loads(row["result"])
+            try:
+                original = self.github.file(record["path"], record["base"], self.task)
+                proposal = json.loads((directory / "proposal/result.json").read_text())
+                updated, patch = apply_change(record["path"], original, proposal["change"])
+                if patch != (directory / "candidate.patch").read_text():
+                    raise ValueError("Pending patch no longer matches its reviewed artifact")
+                review = json.loads((directory / "review/result.json").read_text())
+                if review["findings"]:
+                    raise ValueError("Pending proposal did not pass static review")
+                record.update(
+                    self.publish(
+                        record["base"], record["path"], updated, proposal, row["id"], directory
+                    )
+                )
+                self.state.finish(row["id"], "published", record)
+            except Exception as exc:
+                self.state.finish(row["id"], "failed", record | {"error": type(exc).__name__})
+                LOG.exception("Pending RSI publication failed; inspect before retrying")
+
     async def improve_policy(self):
         # All evaluations must fit the remaining budget before beginning this loop.
         cases_path = Path(__file__).with_name("rsi_cases.json")
         cases = json.loads(cases_path.read_text())
+        benchmark_hash = hashlib.sha256(cases_path.read_bytes()).hexdigest()
+        parent = active_instruction(self.config)
+        for row in self.state.recent():
+            record = json.loads(row["result"])
+            baseline = record.get("baseline", {})
+            if (
+                row["kind"] == "policy"
+                and record.get("parent_hash") == digest(parent)
+                and record.get("benchmark_sha256") == benchmark_hash
+            ):
+                if all(
+                    split in baseline and baseline[split]["fn"] == baseline[split]["fp"] == 0
+                    for split in ["dev", "holdout"]
+                ):
+                    return
         if self.state.used() + 2 * len(cases) + 1 > self.settings.max_model_calls_per_day:
             return
-        parent = active_instruction(self.config)
         run_id = self.state.begin("policy", self.state.day() + ":" + digest(parent))
         directory = self.state.directory / run_id
 
@@ -361,6 +403,14 @@ class Worker:
 
         try:
             old_results, baseline = await evaluate(parent, "baseline")
+            record = {
+                "baseline": baseline,
+                "parent_hash": digest(parent),
+                "benchmark_sha256": benchmark_hash,
+            }
+            if all(values["fn"] == values["fp"] == 0 for values in baseline.values()):
+                self.state.finish(run_id, "benchmark_saturated", record)
+                return
             development = [
                 {
                     "source": case["source"],
@@ -387,7 +437,7 @@ class Worker:
                 "baseline": baseline,
                 "candidate": metrics,
                 "parent_hash": digest(parent),
-                "benchmark_sha256": hashlib.sha256(cases_path.read_bytes()).hexdigest(),
+                "benchmark_sha256": benchmark_hash,
             }
             promote = should_promote(baseline, metrics)
             if promote:
@@ -407,6 +457,8 @@ class Worker:
     async def step(self):
         if (self.state.directory / "STOP").exists():
             return
+        if self.settings.publish_projects:
+            self.publish_pending()
         if self.state.used() >= self.settings.max_model_calls_per_day:
             return
         if self.state.due("policy", self.settings.policy_interval_seconds):

@@ -99,3 +99,57 @@ def test_fixed_benchmark_defects_and_clean_controls_have_executable_evidence():
     assert functions[6]([]) == 0
     values = [1]
     assert functions[7](values, 2) == [1, 2] and values == [1]
+
+
+def test_saturated_benchmark_stops_optimizer_and_is_cached_across_days(tmp_path):
+    config = Config(root=tmp_path, backend="kimi", installation_ids=[1])
+    worker = Worker(config, Settings())
+    cases = json.loads(Path(rsi.__file__).with_name("rsi_cases.json").read_text())
+    labels = {case["source"]: case["expected_lines"] for case in cases}
+    calls = []
+
+    async def review(context, directory, instruction):
+        calls.append(context)
+        expected = labels[context["files"][0]["content"]]
+        return {"findings": [{"path": "fixture.py", "line": expected[0]}] if expected else []}
+
+    async def forbidden(*args):
+        raise AssertionError("A saturated benchmark has no optimizer headroom")
+
+    worker.review, worker.ask = review, forbidden
+    asyncio.run(worker.improve_policy())
+    assert len(calls) == 8 and worker.state.recent()[0]["state"] == "benchmark_saturated"
+    worker.state.now = lambda: 1793275200 + 86400
+    asyncio.run(worker.improve_policy())
+    assert len(calls) == 8 and len(worker.state.recent()) == 1
+
+
+def test_pending_publication_reuses_validated_patch_once_without_model_calls(tmp_path):
+    config = Config(root=tmp_path, backend="kimi", installation_ids=[1])
+    worker = Worker(config, Settings(targets=["scripts/a.py"], publish_projects=True))
+    source = "def last(values):\n    return values[len(values)]\n"
+    proposal = {
+        "change": {"path": "scripts/a.py", "before": "values[len(values)]", "after": "values[-1]"}
+    }
+    run_id = worker.state.begin("project", "fingerprint")
+    directory = worker.state.directory / run_id
+    (directory / "proposal").mkdir(parents=True)
+    (directory / "review").mkdir()
+    (directory / "proposal/result.json").write_text(json.dumps(proposal))
+    (directory / "review/result.json").write_text(json.dumps({"findings": []}))
+    _, patch = rsi.apply_change("scripts/a.py", source, proposal["change"])
+    (directory / "candidate.patch").write_text(patch)
+    worker.state.finish(run_id, "pending", {"path": "scripts/a.py", "base": "base"})
+    worker.github.pages = lambda *args, **kwargs: []
+    worker.github.file = lambda *args: source
+    calls = []
+
+    def publish(*args):
+        calls.append(args)
+        return {"pr_number": 10}
+
+    worker.publish = publish
+    worker.publish_pending()
+    worker.publish_pending()
+    assert len(calls) == 1 and worker.state.used() == 0
+    assert worker.state.recent()[0]["state"] == "published"
