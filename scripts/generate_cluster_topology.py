@@ -7,7 +7,7 @@ import subprocess
 import paramiko
 from tqdm import tqdm
 from itertools import product
-from collections import defaultdict, Counter
+from collections import defaultdict
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
@@ -61,7 +61,7 @@ def list_rdma_devices(host, port, use_sudo):
         numa_str = ssh_exec(host, port, sysfs_cmd).strip()
         try:
             numa = int(numa_str)
-        except:
+        except ValueError:
             numa = -1
         results.append({"name": dev, "numa_node": numa})
     return results
@@ -144,7 +144,8 @@ def save_results(filepath, results):
 def build_partition_map(endpoints):
     partition_map = defaultdict(list)
     for ep in endpoints:
-        if not np.isfinite(ep.get("latency", float('inf'))):
+        latency = ep.get("latency")
+        if latency is None or not np.isfinite(latency):
             continue
         key = f"{ep['src_numa']}-{ep['dst_numa']}"
         partition_map[key].append(ep)
